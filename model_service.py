@@ -16,7 +16,9 @@ import json
 import joblib
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+import os
 
+os.makedirs("data", exist_ok=True)
 # ── Config ───────────────────────────────────────────────────
 MODEL_PATH  = "partner_match_model-2_fixed.pkl"
 SCALER_PATH = "skill_scaler_fixed.pkl"
@@ -35,6 +37,7 @@ skill_scaler = joblib.load(SCALER_PATH)
 print("✅ Model and scaler loaded.")
 
 # ── Database setup ───────────────────────────────────────────
+
 def init_db():
     """Create users table if it doesn't exist."""
     conn = sqlite3.connect(DB_PATH)
