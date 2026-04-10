@@ -1,125 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Taazur – AI Team Formation</title>
+<!-- React and Babel -->
+<script src="[unpkg.com](https://unpkg.com/react@18/umd/react.development.js)"></script>
+<script src="[unpkg.com](https://unpkg.com/react-dom@18/umd/react-dom.development.js)"></script>
+<script src="[unpkg.com](https://unpkg.com/babel-standalone@6/babel.min.js)"></script>
+
+<!-- Styling kept identical -->
+<style>
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #f4f3f0;
+    color: #0d0e14;
+    margin: 0;
+    padding: 40px;
+    text-align: center;
+  }
+  .find-form-card {
+    background: linear-gradient(135deg, #0d0e14 0%, #1e1b4b 60%, #0f172a 100%);
+    border-radius: 20px;
+    padding: 28px;
+    margin: 0 auto;
+    color: white;
+    max-width: 900px;
+  }
+  .find-form-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    margin-bottom: 10px;
+  }
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    color: #0d0e14;
+    margin-bottom: 8px;
+  }
+  .section-sub {
+    font-size: 14px;
+    color: #4b4d63;
+    margin-bottom: 24px;
+  }
+  .skills-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .skill-chip {
+    border: 1.5px solid rgba(255,255,255,.3);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 13px;
+    color: rgba(255,255,255,.7);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .skill-chip:hover {
+    border-color: rgba(255,255,255,.6);
+    color: #fff;
+  }
+  .skill-chip.selected {
+    background: #4f46e5;
+    border-color: #4f46e5;
+    color: #fff;
+    box-shadow: 0 0 12px rgba(79,70,229,.5);
+  }
+  .btn-accent {
+    background: linear-gradient(135deg,#4f46e5,#7c3aed);
+    border: none;
+    color: #fff;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-accent:hover { opacity: .9; transform: translateY(-1px); }
+  .match-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 18px;
+    max-width: 950px;
+    margin: 40px auto;
+  }
+  .match-card {
+    background: white;
+    border: 1px solid rgba(0,0,0,0.1);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    text-align: left;
+    transition: transform .2s;
+  }
+  .match-card:hover { transform: translateY(-2px); }
+  .match-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .avatar {
+    width: 42px; height: 42px; border-radius: 50%;
+    background: linear-gradient(135deg,#4f46e5,#7c3aed);
+    color: white; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px;
+  }
+  .match-name { font-weight: 700; color: #4f46e5; font-size: 16px; }
+  .match-major { font-size: 13px; color: #4b4d63; }
+  .match-explanation { font-size: 13px; color: #333; margin: 10px 0; background: #f9fafc; padding: 10px; border-radius: 8px; }
+  .error-banner {
+    background: rgba(239,68,68,.1);
+    color: #ef4444;
+    border: 1px solid rgba(239,68,68,.3);
+    padding: 12px 16px;
+    border-radius: 8px;
+    display: inline-block;
+    margin-top: 10px;
+  }
+  .loading-state { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 30px; }
+  .spinner {
+    width: 40px; height: 40px; border: 3px solid #ddd;
+    border-top-color: #4f46e5; border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty-state { margin-top: 40px; }
+  .empty-icon { font-size: 40px; margin-bottom: 10px; }
+  .empty-title { font-family: 'Syne',sans-serif; font-weight: 700; font-size: 18px; }
+  .empty-sub { color: #4b4d63; font-size: 14px; }
+</style>
+</head>
+
+<body>
+<div id="root"></div>
+
 <script type="text/babel">
-  function App() {
-    const [selectedSkills, setSelectedSkills] = React.useState([]);
-    const [matches, setMatches] = React.useState([]);
-    const [loading, setLoading] = React.useState(false);
-    const [error, setError] = React.useState("");
+function App() {
+  const [selectedSkills, setSelectedSkills] = React.useState([]);
+  const [matches, setMatches] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState("");
 
-    const allSkills = [
-      "React",
-      "Node.js",
-      "Python",
-      "Data Science",
-      "UI/UX Design",
-      "Machine Learning",
-      "Cloud Computing",
-      "Cybersecurity",
-      "Marketing",
-      "Project Management",
-    ];
+  const allSkills = [
+    "React", "Node.js", "Python", "Data Science", "UI/UX Design",
+    "Machine Learning", "Cloud Computing", "Cybersecurity",
+    "Marketing", "Project Management"
+  ];
 
-    function toggleSkill(skill) {
-      setSelectedSkills((prev) =>
-        prev.includes(skill)
-          ? prev.filter((s) => s !== skill)
-          : [...prev, skill]
-      );
+  function toggleSkill(skill) {
+    setSelectedSkills(prev =>
+      prev.includes(skill)
+        ? prev.filter(s => s !== skill)
+        : [...prev, skill]
+    );
+  }
+
+  async function findTeammates() {
+    setLoading(true);
+    setError("");
+    setMatches([]);
+
+    try {
+      const response = await fetch("[taazur-api.onrender.com](https://taazur-api.onrender.com/api/recommend)", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skills: Object.fromEntries(selectedSkills.map(skill => [skill, 1])),
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to fetch recommendations");
+
+      const data = await response.json();
+      if (Array.isArray(data.matches)) setMatches(data.matches);
+      else if (Array.isArray(data)) setMatches(data);
+      else setMatches([]);
+    } catch (err) {
+      console.error(err);
+      setError("❌ Could not load teammates. Please try again.");
+    } finally {
+      setLoading(false);
     }
+  }
 
-    async function findTeammates() {
-      setLoading(true);
-      setError("");
-      setMatches([]);
+  return (
+    <div className="page page-enter">
+      <div className="section-title">Find Teammates</div>
+      <div className="section-sub">
+        Select your skills and let Taazur AI find your best matches
+      </div>
 
-      try {
-        const response = await fetch(
-          "[taazur-api.onrender.com](https://taazur-api.onrender.com/api/recommend)",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              skills: Object.fromEntries(
-                selectedSkills.map((skill) => [skill, 1])
-              ),
-            }),
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch recommendations");
-        }
-
-        const data = await response.json();
-
-        if (Array.isArray(data.matches)) {
-          setMatches(data.matches);
-        } else if (Array.isArray(data)) {
-          setMatches(data);
-        } else {
-          setMatches([]);
-        }
-      } catch (err) {
-        console.error(err);
-        setError("Could not load teammates. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    return (
-      <div className="container">
-        <h1>Find Teammates</h1>
-
+      <div className="find-form-card">
+        <div className="find-form-title">Your Skills</div>
         <div className="skills-container">
-          {allSkills.map((skill) => (
+          {allSkills.map(skill => (
             <button
               key={skill}
               onClick={() => toggleSkill(skill)}
-              className={selectedSkills.includes(skill) ? "selected" : ""}
+              className={`skill-chip ${selectedSkills.includes(skill) ? "selected" : ""}`}
             >
               {skill}
             </button>
           ))}
         </div>
-
-        <button className="find-btn" onClick={findTeammates}>
-          Find Teammates
+        <button className="btn-accent" onClick={findTeammates} disabled={loading}>
+          {loading ? "Searching..." : "Find Teammates"}
         </button>
-
-        {loading && <p className="loading">Finding best matches...</p>}
-        {error && <p className="error">{error}</p>}
-
-        <div className="matches-container">
-          {!loading &&
-            matches.map((m, index) => (
-              <div key={index} className="match-card">
-                <h3>{m.name || "Unnamed User"}</h3>
-
-                {m.skills && (
-                  <p>
-                    <strong>Skills:</strong>{" "}
-                    {Array.isArray(m.skills)
-                      ? m.skills.join(", ")
-                      : Object.keys(m.skills).join(", ")}
-                  </p>
-                )}
-
-                {m.bio && <p>{m.bio}</p>}
-
-                {!m.skills && !m.bio && (
-                  <p>No additional info provided.</p>
-                )}
-              </div>
-            ))}
-
-          {!loading && !error && matches.length === 0 && (
-            <p>No results yet. Select your skills and click “Find Teammates”.</p>
-          )}
-        </div>
       </div>
-    );
-  }
 
-  const root = ReactDOM.createRoot(document.getElementById("root"));
-  root.render(<App />);
+      {loading && (
+        <div className="loading-state">
+          <div className="spinner"></div>
+          <div className="loading-text">Analyzing compatibility...</div>
+        </div>
+      )}
+
+      {error && <div className="error-banner">{error}</div>}
+
+      {!loading && !error && matches.length > 0 && (
+        <div className="match-grid">
+          {matches.map((m, i) => (
+            <div key={i} className="match-card">
+              <div className="match-header">
+                <div className="avatar">{(m.name || "U")[0]}</div>
+                <div>
+                  <div className="match-name">{m.name || "Unnamed User"}</div>
+                  {m.skills && (
+                    <p className="match-major">
+                      <strong>Skills:</strong>{" "}
+                      {Array.isArray(m.skills)
+                        ? m.skills.join(", ")
+                        : Object.keys(m.skills).join(", ")}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {m.bio && <div className="match-explanation">💡 {m.bio}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && !error && matches.length === 0 && (
+        <div className="empty-state">
+          <div className="empty-icon">👥</div>
+          <div className="empty-title">No matches yet</div>
+          <div className="empty-sub">
+            Select skills above and click “Find Teammates” to view results.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
+</body>
+</html>
