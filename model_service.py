@@ -22,7 +22,7 @@ os.makedirs("data", exist_ok=True)
 # ── Config ───────────────────────────────────────────────────
 MODEL_PATH  = "partner_match_model-2_fixed.pkl"
 SCALER_PATH = "skill_scaler_fixed.pkl"
-DB_PATH     = "data/taazur.db"
+DB_PATH = "/tmp/taazur.db"
 
 # The 11 skill dimensions the model was trained on (ORDER MATTERS)
 SKILL_NAMES = [
