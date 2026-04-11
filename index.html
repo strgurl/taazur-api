@@ -9,6 +9,19 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script>
+  firebase.initializeApp({
+    apiKey: "AIzaSyDTuleE7t0NRf3LbmsVcd-RtYY_Yn_wt4A",
+    authDomain: "taazur-app.firebaseapp.com",
+    projectId: "taazur-app",
+    storageBucket: "taazur-app.firebasestorage.app",
+    messagingSenderId: "759973270958",
+    appId: "1:759973270958:web:ad5b8cd800da7cfd5b643f"
+  });
+</script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -334,12 +347,16 @@ const LoginPage = ({ onLogin, onSwitch }) => {
     if(!email||!password){setError("Please fill in all fields.");return;}
     setLoading(true);
     try {
-      const res = await fetch(API+"/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password})});
-      const data = await res.json();
-      if(!res.ok){setError(data.error||"Invalid email or password.");setLoading(false);return;}
-      localStorage.setItem("taazur_user", JSON.stringify(data));
-      onLogin(data);
-    } catch(e){ setError("Cannot connect to server."); }
+      const cred = await firebase.auth().signInWithEmailAndPassword(email.trim(), password);
+      const doc = await firebase.firestore().collection("users").doc(cred.user.uid).get();
+      const userData = doc.exists ? {...doc.data(), user_id:cred.user.uid, id:cred.user.uid}
+        : {user_id:cred.user.uid, id:cred.user.uid, name:email, email:email.trim().toLowerCase()};
+      onLogin(userData);
+    } catch(e) {
+      const msg = (e.code==="auth/user-not-found"||e.code==="auth/wrong-password"||e.code==="auth/invalid-credential")
+        ? "Invalid email or password." : "Login failed. Please try again.";
+      setError(msg);
+    }
     setLoading(false);
   };
   return (
@@ -394,18 +411,29 @@ const SignupPage = ({ onLogin, onSwitch }) => {
     if(skills.length===0){setError("Please select at least one skill.");return;}
     setError(""); setLoading(true);
     try {
-      const r1=await fetch(API+"/api/auth/signup",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({email:form.email.trim().toLowerCase(),password:form.password,name:form.name.trim(),major:form.major,college:form.college,year:form.year})});
-      const d1=await r1.json();
-      if(!r1.ok){setError(d1.error||"Signup failed.");setLoading(false);return;}
-      const skillsDict={};
-      skills.forEach(s=>{const k=SKILL_MAP[s];if(k)skillsDict[k]=Math.min(1.0,(skillsDict[k]||0)+0.7);});
-      await fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({user_id:d1.user_id,name:d1.name,major:form.major,year:form.year,skills:skillsDict,needs:[]})});
-      const userObj={...d1,profileSkills:skills,skillLevels:Object.fromEntries(skills.map(s=>[s,2]))};
-      localStorage.setItem("taazur_user",JSON.stringify(userObj));
+      const cred = await firebase.auth().createUserWithEmailAndPassword(form.email.trim(), form.password);
+      const uid = cred.user.uid;
+      const userObj = {
+        user_id:uid, id:uid,
+        name:form.name.trim(), email:form.email.trim().toLowerCase(),
+        major:form.major, college:form.college, year:form.year,
+        profileSkills:skills,
+        skillLevels:Object.fromEntries(skills.map(s=>[s,2]))
+      };
+      await firebase.firestore().collection("users").doc(uid).set(userObj);
+      try {
+        const skillsDict={};
+        skills.forEach(s=>{const k=SKILL_MAP[s];if(k)skillsDict[k]=Math.min(1.0,(skillsDict[k]||0)+0.7);});
+        await fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({user_id:uid,name:userObj.name,major:form.major,year:form.year,skills:skillsDict,needs:[]})});
+      } catch(e){ console.warn("Backend registration failed, continuing."); }
       onLogin(userObj);
-    } catch(e){setError("Cannot connect to server.");}
+    } catch(e) {
+      const msg = e.code==="auth/email-already-in-use" ? "An account with this email already exists."
+        : e.code==="auth/weak-password" ? "Password must be at least 6 characters."
+        : "Signup failed. Please try again.";
+      setError(msg);
+    }
     setLoading(false);
   };
 
@@ -800,7 +828,11 @@ const ProfilePage = ({ user, updateUser, onLogout }) => {
         })
       });
     } catch(e) { console.warn("API register failed, continuing locally"); }
-    updateUser({...user,...form,skillLevels,profileComplete:true,profileSkills:Object.keys(skillLevels)});
+    const updated = {...user,...form,skillLevels,profileComplete:true,profileSkills:Object.keys(skillLevels)};
+    try {
+      await firebase.firestore().collection("users").doc(updated.user_id||updated.id).set(updated,{merge:true});
+    } catch(e){ console.warn("Firestore save failed"); }
+    updateUser(updated);
     setEditMode(false); setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
   return (
@@ -1159,12 +1191,33 @@ const AppShell = ({ user, onLogout, setUser }) => {
 
 // ── ROOT ───────────────────────────────────────
 const App = () => {
-  const [user,setUser]=useState(()=>{
-    try{const s=localStorage.getItem("taazur_user");return s?JSON.parse(s):null;}catch(e){return null;}
-  });
+  const [user,setUser]=useState(undefined); // undefined=loading, null=logged out
   const [authPage,setAuthPage]=useState("login");
-  const handleLogout=()=>{localStorage.removeItem("taazur_user");setUser(null);};
-  const handleUpdate=u=>{setUser(u);localStorage.setItem("taazur_user",JSON.stringify(u));};
+
+  useEffect(()=>{
+    const unsub = firebase.auth().onAuthStateChanged(async firebaseUser => {
+      if(firebaseUser){
+        try {
+          const doc = await firebase.firestore().collection("users").doc(firebaseUser.uid).get();
+          setUser(doc.exists ? {...doc.data(),user_id:firebaseUser.uid,id:firebaseUser.uid}
+            : {user_id:firebaseUser.uid,id:firebaseUser.uid,name:firebaseUser.email,email:firebaseUser.email});
+        } catch(e){ setUser({user_id:firebaseUser.uid,id:firebaseUser.uid,name:firebaseUser.email,email:firebaseUser.email}); }
+      } else { setUser(null); }
+    });
+    return ()=>unsub();
+  },[]);
+
+  const handleLogout=()=>{ firebase.auth().signOut(); };
+  const handleUpdate=async u=>{
+    setUser(u);
+    try{ await firebase.firestore().collection("users").doc(u.user_id||u.id).set(u,{merge:true}); }catch(e){}
+  };
+
+  if(user===undefined) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--ink)"}}>
+      <div className="spinner" style={{borderTopColor:"var(--accent3)"}}/>
+    </div>
+  );
   if(!user) return authPage==="login"
     ?<LoginPage onLogin={setUser} onSwitch={()=>setAuthPage("signup")}/>
     :<SignupPage onLogin={setUser} onSwitch={()=>setAuthPage("login")}/>;
