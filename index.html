@@ -580,11 +580,16 @@ const DashboardPage = ({ user, setPage }) => {
       <div className="two-col">
         <div className="card">
           <div className="flex-between mb-16">
-            <div><div className="card-title">Profile Completion</div><div className="card-sub">Complete to get better matches</div></div>
-            <span style={{fontFamily:"Syne,sans-serif",fontWeight:800,fontSize:22,color:"var(--accent)"}}>{profileCompletion}%</span>
+            <div>
+              <div className="card-title">Profile Completion</div>
+              <div className="card-sub">{profileCompletion===100?"Your profile is complete!":"Complete to get better matches"}</div>
+            </div>
+            <span style={{fontFamily:"Syne,sans-serif",fontWeight:800,fontSize:22,color:profileCompletion===100?"var(--green)":"var(--accent)"}}>
+              {profileCompletion===100?"🎉":""+profileCompletion+"%"}
+            </span>
           </div>
           <div className="completion-bar" style={{height:8,marginBottom:16}}>
-            <div className="completion-fill" style={{width:`${profileCompletion}%`}}/>
+            <div className="completion-fill" style={{width:profileCompletion+"%",background:profileCompletion===100?"var(--green)":undefined}}/>
           </div>
           {checkItems.map((item,i)=>(
             <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
@@ -592,7 +597,9 @@ const DashboardPage = ({ user, setPage }) => {
               <span style={{fontSize:14,color:item.done?"var(--text)":"var(--text3)"}}>{item.label}</span>
             </div>
           ))}
-          <button className="btn btn-primary btn-sm mt-16" onClick={()=>setPage("profile")}>Complete Profile →</button>
+          <button className="btn btn-primary btn-sm mt-16" onClick={()=>setPage("profile")}>
+            {profileCompletion===100?"View Profile →":"Complete Profile →"}
+          </button>
         </div>
         <div className="card">
           <div className="card-title mb-16">Get Started</div>
@@ -1140,16 +1147,26 @@ const TeamsPage = ({ user }) => {
       setInviteResults(results.slice(0,5));
     } catch(e){ setInviteResults([]); }
   };
-  const sendInvite=async(targetUser)=>{
+  const deleteTeam=async(teamId)=>{
+    if(!window.confirm("Delete this team? This cannot be undone.")) return;
     try {
-      await firebase.firestore().collection("users").doc(targetUser.user_id||targetUser.id)
+      await firebase.firestore().collection("teams").doc(teamId).delete();
+      setTeams(t=>t.filter(team=>team.id!==teamId));
+    } catch(e){ alert("Could not delete team."); }
+  };
+
+  const sendInvite=async(targetUser)=>{
+    const targetUid = targetUser.user_id||targetUser.id;
+    try {
+      await firebase.firestore().collection("users").doc(targetUid)
         .collection("notifications").add({
-          type:"team_invite", fromName:user.name, teamId:inviteModal.id,
-          teamName:inviteModal.name, timestamp:Date.now(), read:false
+          type:"team_invite", fromName:user.name, fromUid:uid,
+          teamId:inviteModal.id, teamName:inviteModal.name,
+          timestamp:Date.now(), read:false, responded:false
         });
       setInviteSent(true);
       setTimeout(()=>{setInviteSent(false);setInviteModal(null);setInviteSearch("");setInviteResults([]);},1500);
-    } catch(e){ alert("Could not send invite."); }
+    } catch(e){ alert("Invite failed. Make sure Firestore rules allow writing to other users notifications subcollection."); }
   };
   if(selectedTeam) return <TeamDetailPage team={selectedTeam} onBack={()=>setSelectedTeam(null)} user={user}/>;
   return (
@@ -1248,6 +1265,7 @@ const TeamsPage = ({ user }) => {
               <button className="btn btn-primary btn-sm" onClick={()=>setSelectedTeam(team)}>View Team</button>
               <button className="btn btn-outline btn-sm" onClick={()=>setInviteModal(team)}>✉ Invite</button>
               <button className="btn btn-ghost btn-sm" onClick={()=>setSelectedTeam(team)}>💬 Chat</button>
+              {team.createdBy===uid&&<button className="btn btn-danger btn-sm" onClick={()=>deleteTeam(team.id)}>🗑 Delete</button>}
               {team.pendingRequests>0&&<span style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"var(--gold)"}}>
                 <span className="notif-dot" style={{background:"var(--gold)"}}/>{team.pendingRequests} requests</span>}
             </div>
@@ -1364,10 +1382,27 @@ const AppShell = ({ user, onLogout, setUser }) => {
                 <div style={{padding:"14px 16px",borderBottom:"1px solid var(--border)",fontFamily:"Syne,sans-serif",fontWeight:700,fontSize:14}}>Notifications</div>
                 {notifs.length===0?<div style={{padding:16,color:"var(--text3)",fontSize:13}}>No notifications yet</div>:
                   notifs.map(n=>(
-                    <div key={n.id} style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",background:n.read?"var(--white)":"var(--surface2)",cursor:"pointer"}}
-                      onClick={()=>{setPage("teams");setShowNotifs(false);}}>
-                      <div style={{fontSize:13,fontWeight:500}}>{n.type==="join_request"?"🙋 "+n.fromName+" wants to join "+n.teamName:n.type==="team_invite"?"✉️ "+n.fromName+" invited you to "+n.teamName:"📣 "+n.teamName}</div>
+                    <div key={n.id} style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",background:n.read?"var(--white)":"var(--surface2)"}}>
+                      <div style={{fontSize:13,fontWeight:500}}>
+                        {n.type==="join_request"?"🙋 "+n.fromName+" wants to join "+n.teamName
+                         :n.type==="team_invite"?"✉️ "+n.fromName+" invited you to "+n.teamName
+                         :"📣 "+n.teamName}
+                      </div>
                       <div style={{fontSize:11,color:"var(--text3)",marginTop:3}}>{new Date(n.timestamp).toLocaleDateString()}</div>
+                      {n.type==="team_invite"&&!n.responded&&(
+                        <div style={{display:"flex",gap:6,marginTop:8}}>
+                          <button className="btn btn-sm" style={{background:"var(--green)",color:"white",padding:"4px 12px",fontSize:12}} onClick={()=>acceptInvite(n)}>Accept</button>
+                          <button className="btn btn-sm btn-outline" style={{padding:"4px 12px",fontSize:12}} onClick={()=>declineInvite(n)}>Decline</button>
+                        </div>
+                      )}
+                      {n.type==="team_invite"&&n.responded&&(
+                        <div style={{fontSize:11,color:n.response==="accepted"?"var(--green)":"var(--text3)",marginTop:4}}>
+                          {n.response==="accepted"?"✓ Accepted":"✗ Declined"}
+                        </div>
+                      )}
+                      {n.type==="join_request"&&(
+                        <button className="btn btn-ghost btn-sm" style={{fontSize:11,padding:"2px 8px",marginTop:4}} onClick={()=>{setPage("teams");setShowNotifs(false);}}>View in My Teams →</button>
+                      )}
                     </div>
                   ))
                 }
