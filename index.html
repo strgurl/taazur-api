@@ -295,28 +295,6 @@ const SKILL_MAP = {
   "Computer Vision":"ai_ml","Flutter":"programming","Swift":"programming",
   "Project Management":"project_mgmt","Research":"research"
 };
-const generateMockMatches = () => [
-  { id:1, name:"Omar Al-Hamdan",   major:"Artificial Intelligence", year:"Year 4", score:91, skills:["Machine Learning","Deep Learning","Python","NLP"],    explanation:"Covers your needs in AI and backend development. Strong research background.", available:true  },
-  { id:2, name:"Lina Farhan",      major:"Computer Science",        year:"Year 2", score:84, skills:["React","UI/UX Design","Figma","JavaScript"],           explanation:"Brings strong frontend and design skills to complement your technical background.", available:true  },
-  { id:3, name:"Yusuf Nasser",     major:"Information Systems",     year:"Year 3", score:76, skills:["SQL","Data Analysis","Python","Project Management"],    explanation:"Solid data skills with experience in project coordination.", available:true  },
-  { id:4, name:"Nora Al-Mutairi",  major:"Software Engineering",    year:"Year 4", score:68, skills:["Mobile Dev","Flutter","Swift","UI/UX Design"],          explanation:"Expert in mobile development across iOS and Android platforms.", available:false },
-  { id:5, name:"Hassan Qasim",     major:"Cybersecurity",           year:"Year 2", score:55, skills:["Cybersecurity","DevOps","Linux","Backend Dev"],          explanation:"Strong security background; handles infrastructure and deployment.", available:true  },
-  { id:6, name:"Rima Khalil",      major:"Data Science",            year:"Year 3", score:62, skills:["Data Analysis","Python","Research","SQL"],              explanation:"Academic research experience with strong analytical skills.", available:true  },
-];
-const INITIAL_TEAMS = [
-  { id:1, name:"NLP Vision Team",  project:"Sentiment Analysis Dashboard", type:"Course Project", privacy:"Public",  status:"Active",
-    members:[{name:"Sarah A.",initials:"SA"},{name:"Omar H.",initials:"OH"},{name:"Lina F.",initials:"LF"}],
-    skills:["Python","NLP","React","UI/UX Design"], pendingRequests:2,
-    chat:[{id:1,sender:"Omar H.",text:"Hey team, pushed the initial ML model.",me:false},{id:2,sender:"You",text:"Great! Starting dashboard UI today.",me:true},{id:3,sender:"Lina F.",text:"I'll handle the design mockups 🎨",me:false}] },
-  { id:2, name:"EdTech Builders",  project:"AI Tutoring App",              type:"Hackathon",      privacy:"Private", status:"Recruiting",
-    members:[{name:"Sarah A.",initials:"SA"},{name:"Yusuf N.",initials:"YN"}],
-    skills:["Mobile Dev","Machine Learning","Backend Dev"], pendingRequests:0,
-    chat:[{id:1,sender:"Yusuf N.",text:"Welcome! Let's plan our first sprint.",me:false}] },
-];
-const MOCK_REQUESTS = [
-  { id:1, from:"Hassan Qasim",    major:"Cybersecurity",        teamId:1 },
-  { id:2, from:"Nora Al-Mutairi", major:"Software Engineering", teamId:1 },
-];
 
 // ── UTILITIES ─────────────────────────────────
 const getScoreClass = s => s>=80?"high":s>=60?"medium":"low";
@@ -569,7 +547,7 @@ const Sidebar = ({ page, setPage, user, onLogout, pendingCount, open, onClose })
 };
 
 // ── DASHBOARD ─────────────────────────────────
-const DashboardPage = ({ user, setPage, pendingCount }) => {
+const DashboardPage = ({ user, setPage }) => {
   const profileCompletion = user.profileComplete ? 85 : 40;
   const checkItems = [
     {label:"Basic Info",done:true},
@@ -587,25 +565,9 @@ const DashboardPage = ({ user, setPage, pendingCount }) => {
         </div>
         <div className="welcome-actions">
           <button className="action-btn action-btn-primary" onClick={()=>setPage("find")}>◎ Find Teammates</button>
-          <button className="action-btn action-btn-secondary" onClick={()=>setPage("teams")}>
-            ⬡ My Teams {pendingCount>0&&<span className="badge" style={{marginLeft:4}}>{pendingCount}</span>}
-          </button>
+          <button className="action-btn action-btn-secondary" onClick={()=>setPage("teams")}>⬡ My Teams</button>
           <button className="action-btn action-btn-secondary" onClick={()=>setPage("teams")}>⊕ Join Team</button>
         </div>
-      </div>
-      <div className="stats-row mb-24">
-        {[
-          {label:"Teams Joined",value:"2",sub:"1 active project"},
-          {label:"Pending Invites",value:String(pendingCount),sub:"Needs your response"},
-          {label:"Profile Views",value:"14",sub:"Last 7 days"},
-          {label:"Best Match",value:"91%",sub:"Omar Al-Hamdan"},
-        ].map((s,i)=>(
-          <div className="stat-card" key={i}>
-            <div className="stat-label">{s.label}</div>
-            <div className="stat-value">{s.value}</div>
-            <div className="stat-change">{s.sub}</div>
-          </div>
-        ))}
       </div>
       <div className="two-col">
         <div className="card">
@@ -625,21 +587,13 @@ const DashboardPage = ({ user, setPage, pendingCount }) => {
           <button className="btn btn-primary btn-sm mt-16" onClick={()=>setPage("profile")}>Complete Profile →</button>
         </div>
         <div className="card">
-          <div className="card-title mb-16">Recent Activity</div>
-          {[
-            {icon:"◎",text:"Your profile was viewed by Omar Al-Hamdan",time:"2h ago",color:"var(--accent)"},
-            {icon:"⬡",text:"You were added to NLP Vision Team",time:"1d ago",color:"var(--green)"},
-            {icon:"◉",text:"New match found: 91% compatibility",time:"2d ago",color:"var(--gold)"},
-            {icon:"↗",text:"Lina Farhan sent you a team invite",time:"3d ago",color:"var(--accent3)"},
-          ].map((a,i)=>(
-            <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:14}}>
-              <span style={{fontSize:16,color:a.color,marginTop:1}}>{a.icon}</span>
-              <div style={{flex:1}}>
-                <div style={{fontSize:13,color:"var(--text)",lineHeight:1.4}}>{a.text}</div>
-                <div style={{fontSize:12,color:"var(--text3)",marginTop:2}}>{a.time}</div>
-              </div>
-            </div>
-          ))}
+          <div className="card-title mb-16">Get Started</div>
+          <div style={{color:"var(--text3)",fontSize:14,lineHeight:1.8}}>
+            <div style={{display:"flex",gap:10,marginBottom:10}}><span style={{color:"var(--accent)",fontWeight:700}}>1.</span><span>Complete your profile with your skills and info.</span></div>
+            <div style={{display:"flex",gap:10,marginBottom:10}}><span style={{color:"var(--accent)",fontWeight:700}}>2.</span><span>Go to <b>Find Teammates</b> and select your skills.</span></div>
+            <div style={{display:"flex",gap:10}}><span style={{color:"var(--accent)",fontWeight:700}}>3.</span><span>Let the AI match you with compatible students.</span></div>
+          </div>
+          <button className="btn btn-accent btn-sm mt-16" onClick={()=>setPage("find")}>⚡ Find My Teammates</button>
         </div>
       </div>
     </div>
@@ -939,10 +893,6 @@ const TeamDetailPage = ({ team, onBack }) => {
     setMessages(m=>[...m,{id:Date.now(),sender:"You",text:chatInput,me:true}]);
     setChatInput("");
   };
-  const memberSkillMap = {
-    SA:["Python","Machine Learning","React"], OH:["Deep Learning","NLP","Python"],
-    LF:["UI/UX Design","Figma","React"],      YN:["SQL","Data Analysis"]
-  };
   return (
     <div className="page page-enter">
       <button className="btn btn-ghost btn-sm mb-24" onClick={onBack}>← Back to Teams</button>
@@ -961,7 +911,7 @@ const TeamDetailPage = ({ team, onBack }) => {
         <div className="card">
           <div className="card-title mb-16">Team Members &amp; Skills</div>
           {team.members.map((m,i)=>{
-            const skills=memberSkillMap[m.initials]||[];
+            const skills=m.skills||[];
             return (
               <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:16,paddingBottom:16,borderBottom:i<team.members.length-1?"1px solid var(--border)":"none"}}>
                 <div className="avatar">{m.initials}</div>
@@ -1012,8 +962,8 @@ const TeamDetailPage = ({ team, onBack }) => {
 
 // ── TEAMS PAGE ─────────────────────────────────
 const TeamsPage = ({ user }) => {
-  const [teams,setTeams]=useState(INITIAL_TEAMS);
-  const [requests,setRequests]=useState(MOCK_REQUESTS);
+  const [teams,setTeams]=useState([]);
+  const [requests,setRequests]=useState([]);
   const [showCreate,setShowCreate]=useState(false);
   const [selectedTeam,setSelectedTeam]=useState(null);
   const [newTeam,setNewTeam]=useState({name:"",project:"",type:"",privacy:"Public"});
@@ -1161,7 +1111,7 @@ const TeamsPage = ({ user }) => {
 const AppShell = ({ user, onLogout, setUser }) => {
   const [page,setPage]=useState("dashboard");
   const [sidebarOpen,setSidebarOpen]=useState(false);
-  const pendingCount=MOCK_REQUESTS.length;
+  const pendingCount=0;
   const PAGE_TITLES={dashboard:"Dashboard",find:"Find Teammates",teams:"My Teams",profile:"My Profile"};
   return (
     <div className="app-shell">
@@ -1180,7 +1130,7 @@ const AppShell = ({ user, onLogout, setUser }) => {
           <div className="topbar-badge">{user.major||"Student"}{user.year?` · Year ${user.year}`:""}</div>
           <div className="avatar" style={{cursor:"pointer"}} onClick={()=>setPage("profile")}>{getInitials(user.name)}</div>
         </div>
-        {page==="dashboard"&&<DashboardPage user={user} setPage={setPage} pendingCount={pendingCount}/>}
+        {page==="dashboard"&&<DashboardPage user={user} setPage={setPage}/>}
         {page==="find"&&<FindPage user={user}/>}
         {page==="profile"&&<ProfilePage user={user} updateUser={setUser} onLogout={onLogout}/>}
         {page==="teams"&&<TeamsPage user={user}/>}
