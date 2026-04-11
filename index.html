@@ -405,6 +405,8 @@ const SignupPage = ({ onLogin, onSwitch }) => {
         await fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({user_id:uid,name:userObj.name,major:form.major,year:form.year,skills:skillsDict,needs:[]})});
       } catch(e){ console.warn("Backend registration failed, continuing."); }
+      // Send email verification
+      try { await firebase.auth().currentUser.sendEmailVerification(); } catch(e){}
       onLogin(userObj);
     } catch(e) {
       const msg = e.code==="auth/email-already-in-use" ? "An account with this email already exists."
@@ -602,77 +604,64 @@ const DashboardPage = ({ user, setPage }) => {
 
 // ── FIND TEAMMATES ─────────────────────────────
 const FindPage = ({ user }) => {
-  const [mySkills,setMySkills]=useState(user.profileSkills||["Python"]);
-  const [neededSkills,setNeededSkills]=useState(["React","UI/UX Design"]);
+  const [mySkills,setMySkills]=useState(user.profileSkills||[]);
+  const [neededSkills,setNeededSkills]=useState([]);
   const [results,setResults]=useState(null);
   const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
   const [invitedIds,setInvitedIds]=useState([]);
+  const [profileModal,setProfileModal]=useState(null);
   const toggle=(skill,arr,setArr)=>setArr(a=>a.includes(skill)?a.filter(s=>s!==skill):[...a,skill]);
 
-  // ── Skill name mapping: display name → API name ──
-  const SKILL_MAP = {
-    "Python":"programming","JavaScript":"programming","React":"uiux","Node.js":"programming",
-    "Machine Learning":"ai_ml","Data Analysis":"data_analysis","UI/UX Design":"uiux",
-    "Figma":"uiux","Deep Learning":"ai_ml","Backend Dev":"programming","Mobile Dev":"programming",
-    "SQL":"data_analysis","DevOps":"programming","Cybersecurity":"programming","NLP":"ai_ml",
-    "Computer Vision":"ai_ml","Flutter":"programming","Swift":"programming",
-    "Project Management":"project_mgmt","Research":"research"
+  const scoreUsers = (otherUsers) => {
+    const myId = user.user_id || user.id;
+    const neededSet = new Set(neededSkills);
+    return otherUsers
+      .filter(u => (u.user_id||u.id) !== myId && u.name)
+      .map(u => {
+        const theirSkills = u.profileSkills || [];
+        const covered = theirSkills.filter(s => neededSet.has(s)).length;
+        const coverageScore = neededSet.size > 0 ? covered / neededSet.size : 0;
+        const mySet = new Set(mySkills);
+        const theirSet = new Set(theirSkills);
+        const allSkills = new Set([...mySet, ...theirSet]);
+        const overlap = [...mySet].filter(s => theirSet.has(s)).length;
+        const diversity = allSkills.size > 0 ? 1 - overlap / allSkills.size : 0.5;
+        const raw = neededSet.size > 0 ? coverageScore * 0.7 + diversity * 0.3 : diversity;
+        const score = Math.min(100, Math.max(10, Math.round(raw * 100)));
+        const provides = theirSkills.filter(s => neededSet.has(s));
+        const explanation = provides.length > 0
+          ? "Has needed skills: " + provides.slice(0,3).join(", ")
+          : theirSkills.length > 0
+            ? "Skills: " + theirSkills.slice(0,3).join(", ")
+            : "Complementary profile";
+        return {
+          id: u.user_id || u.id,
+          name: u.name,
+          major: u.major || "",
+          year: u.year ? "Year "+u.year : "",
+          score,
+          skills: theirSkills,
+          explanation,
+          available: true,
+          fullProfile: u
+        };
+      })
+      .sort((a,b) => b.score - a.score);
   };
 
   const findMatches = async () => {
-    setLoading(true); setResults(null);
-    // Build skill dict: selected skills → level 0.7 (intermediate-advanced)
-    const skillsDict = {};
-    mySkills.forEach(s => { const k=SKILL_MAP[s]; if(k) skillsDict[k]=(skillsDict[k]||0)+0.7; });
-    // Clamp to max 1.0
-    Object.keys(skillsDict).forEach(k=>{ skillsDict[k]=Math.min(1.0,skillsDict[k]); });
-    // Needed skills
-    const needsList = [...new Set(neededSkills.map(s=>SKILL_MAP[s]).filter(Boolean))];
+    if(mySkills.length === 0) return;
+    setLoading(true); setResults(null); setError(null);
     try {
-      const res = await fetch(API+"/api/recommend", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          user_id: user.user_id || user.id || null,
-          skills: skillsDict,
-          needs: needsList,
-          k: 6
-        })
-      });
-      if(!res.ok) throw new Error("Server error");
-      const data = await res.json();
-      if(data.status === "no_candidates") {
-        setResults([]);
-        setLoading(false);
-        return;
-      }
-      const mapped = (data.matches||[]).map(m => ({
-        id: m.user_id || m.student_id || Math.random(),
-        name: m.name || ("Student #"+m.student_id),
-        major: m.major || "Unknown",
-        year: m.year ? ("Year "+m.year) : "",
-        score: m.score_percent!=null ? m.score_percent : Math.round((m.score||0)*20),
-        skills: Object.keys(m.skills||{}).map(k=>k.charAt(0).toUpperCase()+k.slice(1).replace(/_/g," ")),
-        explanation: buildExplanation(m.explanation),
-        available: true
-      }));
-      setResults(mapped);
+      const snapshot = await firebase.firestore().collection("users").get();
+      const allUsers = snapshot.docs.map(d => d.data());
+      const scored = scoreUsers(allUsers);
+      setResults(scored);
     } catch(e) {
-      setResults([]);
+      setError("Could not load users. Please try again.");
     }
     setLoading(false);
-  };
-
-  const buildExplanation = (exp) => {
-    if(!exp) return "Good complementary match based on skills.";
-    const parts = [];
-    if(exp.provides_to_you && exp.provides_to_you.length>0)
-      parts.push("Provides: "+exp.provides_to_you.map(s=>s.skill+" ("+s.level+")").join(", "));
-    if(exp.you_provide && exp.you_provide.length>0)
-      parts.push("You offer: "+exp.you_provide.map(s=>s.skill+" ("+s.level+")").join(", "));
-    if(exp.high_diversity) parts.push("High skill diversity");
-    if(exp.low_redundancy) parts.push("Low overlap");
-    return parts.join(" · ") || "Complementary skill profile.";
   };
   return (
     <div className="page page-enter">
@@ -724,10 +713,11 @@ const FindPage = ({ user }) => {
                   <div className="tags-wrap mb-16">{match.skills.map(s=><span key={s} className="tag tag-accent">{s}</span>)}</div>
                   <div className="match-footer">
                     <div style={{fontSize:12,color:"var(--text3)"}}>{match.year}</div>
-                    {invited?<div className="invite-sent">✓ Invite sent</div>:
-                      <button className="btn btn-primary btn-sm" onClick={()=>setInvitedIds(ids=>[...ids,match.id])} disabled={!match.available}>
-                        {match.available?"Invite +":"Unavailable"}
-                      </button>}
+                    <div style={{display:"flex",gap:6}}>
+                      <button className="btn btn-outline btn-sm" onClick={()=>setProfileModal(match.fullProfile)}>View Profile</button>
+                      {invited?<div className="invite-sent">✓ Invite sent</div>:
+                        <button className="btn btn-primary btn-sm" onClick={()=>setInvitedIds(ids=>[...ids,match.id])}>Invite +</button>}
+                    </div>
                   </div>
                 </div>
               );
@@ -740,6 +730,33 @@ const FindPage = ({ user }) => {
       )}
       {!results&&!loading&&(
         <div className="empty-state"><div className="empty-icon">◎</div><div className="empty-title">Ready to find your team?</div><div className="empty-sub">Select your skills above and click "Find My Matches"</div></div>
+      )}
+      {error&&!loading&&<div className="error-banner">⚠ {error}</div>}
+      {profileModal&&(
+        <div className="modal-overlay" onClick={e=>{if(e.target.className.includes("modal-overlay"))setProfileModal(null);}}>
+          <div className="modal">
+            <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20}}>
+              <div className="avatar lg">{getInitials(profileModal.name)}</div>
+              <div>
+                <div style={{fontFamily:"Syne,sans-serif",fontSize:20,fontWeight:800}}>{profileModal.name}</div>
+                <div style={{fontSize:13,color:"var(--text3)"}}>{profileModal.major}{profileModal.year?" · Year "+profileModal.year:""}</div>
+                {profileModal.college&&<div style={{fontSize:13,color:"var(--text3)"}}>{profileModal.college}</div>}
+              </div>
+            </div>
+            {profileModal.bio&&<p style={{fontSize:14,color:"var(--text2)",marginBottom:16,lineHeight:1.6}}>{profileModal.bio}</p>}
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:12,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.8px",color:"var(--text3)",marginBottom:8}}>Skills</div>
+              <div className="tags-wrap">
+                {(profileModal.profileSkills||[]).length>0
+                  ?(profileModal.profileSkills||[]).map(s=><span key={s} className="tag tag-accent">{s}</span>)
+                  :<span style={{fontSize:13,color:"var(--text3)"}}>No skills listed</span>}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setProfileModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -963,21 +980,68 @@ const TeamDetailPage = ({ team, onBack }) => {
 // ── TEAMS PAGE ─────────────────────────────────
 const TeamsPage = ({ user }) => {
   const [teams,setTeams]=useState([]);
+  const [publicTeams,setPublicTeams]=useState([]);
   const [requests,setRequests]=useState([]);
   const [showCreate,setShowCreate]=useState(false);
   const [selectedTeam,setSelectedTeam]=useState(null);
-  const [newTeam,setNewTeam]=useState({name:"",project:"",type:"",privacy:"Public"});
+  const [newTeam,setNewTeam]=useState({name:"",project:"",type:"",privacy:"Public",skills:[]});
   const [inviteModal,setInviteModal]=useState(null);
   const [inviteEmail,setInviteEmail]=useState("");
   const [inviteSent,setInviteSent]=useState(false);
   const [joinModal,setJoinModal]=useState(false);
+  const [joinSearch,setJoinSearch]=useState("");
   const setNT=(k,v)=>setNewTeam(t=>({...t,[k]:v}));
+  const toggleTeamSkill=s=>setNewTeam(t=>({...t,skills:t.skills.includes(s)?t.skills.filter(x=>x!==s):[...t.skills,s]}));
   const handleRequest=(id)=>setRequests(r=>r.filter(req=>req.id!==id));
-  const createTeam=()=>{
+  const uid = user.user_id || user.id;
+
+  useEffect(()=>{
+    // Load user's teams from Firestore
+    firebase.firestore().collection("teams")
+      .where("memberIds","array-contains",uid)
+      .get()
+      .then(snap=>{
+        setTeams(snap.docs.map(d=>({...d.data(),id:d.id})));
+      }).catch(()=>{});
+  },[]);
+
+  const createTeam=async()=>{
     if(!newTeam.name)return;
-    setTeams(t=>[...t,{id:Date.now(),...newTeam,status:"Recruiting",members:[{name:user.name,initials:getInitials(user.name)}],skills:[],pendingRequests:0,chat:[]}]);
-    setNewTeam({name:"",project:"",type:"",privacy:"Public"}); setShowCreate(false);
+    const teamData = {
+      name:newTeam.name, project:newTeam.project, type:newTeam.type,
+      privacy:newTeam.privacy, skills:newTeam.skills,
+      status:"Recruiting",
+      members:[{name:user.name,initials:getInitials(user.name),uid}],
+      memberIds:[uid],
+      pendingRequests:0, chat:[],
+      createdBy:uid, createdAt:Date.now()
+    };
+    try {
+      const ref = await firebase.firestore().collection("teams").add(teamData);
+      setTeams(t=>[...t,{...teamData,id:ref.id}]);
+    } catch(e){ console.warn("Firestore save failed, showing locally"); setTeams(t=>[...t,{...teamData,id:Date.now().toString()}]); }
+    setNewTeam({name:"",project:"",type:"",privacy:"Public",skills:[]}); setShowCreate(false);
   };
+
+  const openJoinModal=async()=>{
+    setJoinModal(true);
+    try {
+      const snap = await firebase.firestore().collection("teams").where("privacy","==","Public").get();
+      setPublicTeams(snap.docs.map(d=>({...d.data(),id:d.id})).filter(t=>!t.memberIds?.includes(uid)));
+    } catch(e){ setPublicTeams([]); }
+  };
+
+  const requestJoin=async(team)=>{
+    try {
+      await firebase.firestore().collection("teams").doc(team.id).update({
+        memberIds: firebase.firestore.FieldValue.arrayUnion(uid),
+        members: firebase.firestore.FieldValue.arrayUnion({name:user.name,initials:getInitials(user.name),uid})
+      });
+      setTeams(t=>[...t,{...team,members:[...(team.members||[]),{name:user.name,initials:getInitials(user.name)}]}]);
+      setPublicTeams(t=>t.filter(pt=>pt.id!==team.id));
+    } catch(e){ alert("Could not join team."); }
+  };
+
   const sendInvite=()=>{if(!inviteEmail)return;setInviteSent(true);setTimeout(()=>{setInviteSent(false);setInviteModal(null);setInviteEmail("");},1500);};
   if(selectedTeam) return <TeamDetailPage team={selectedTeam} onBack={()=>setSelectedTeam(null)}/>;
   return (
@@ -985,7 +1049,7 @@ const TeamsPage = ({ user }) => {
       <div className="flex-between mb-24">
         <div><div className="section-title">My Teams</div><div className="section-sub">Manage your project teams and invitations</div></div>
         <div style={{display:"flex",gap:10}}>
-          <button className="btn btn-outline" onClick={()=>setJoinModal(true)}>⊕ Join Team</button>
+          <button className="btn btn-outline" onClick={openJoinModal}>⊕ Join Team</button>
           <button className="btn btn-primary" onClick={()=>setShowCreate(!showCreate)}>+ Create Team</button>
         </div>
       </div>
@@ -1027,7 +1091,20 @@ const TeamsPage = ({ user }) => {
                 :<div className="privacy-note privacy-public">🌐 Users must send a request to join. Team will appear in search results</div>}
             </div>
           </div>
-          <div style={{display:"flex",gap:10,marginTop:4}}>
+          <div className="form-group" style={{marginTop:4}}>
+            <label className="form-label">Skills Needed for This Team</label>
+            <div className="tags-wrap" style={{marginTop:6}}>
+              {ALL_SKILLS.map(s=>(
+                <button key={s} type="button"
+                  style={{padding:"4px 10px",borderRadius:"99px",fontSize:"12px",cursor:"pointer",margin:"2px",
+                    border:newTeam.skills.includes(s)?"1.5px solid var(--accent)":"1.5px solid var(--border)",
+                    background:newTeam.skills.includes(s)?"var(--accent)":"transparent",
+                    color:newTeam.skills.includes(s)?"var(--white)":"var(--text2)"}}
+                  onClick={()=>toggleTeamSkill(s)}>{s}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10,marginTop:8}}>
             <button className="btn btn-primary" onClick={createTeam}>Create Team</button>
             <button className="btn btn-ghost" onClick={()=>setShowCreate(false)}>Cancel</button>
           </div>
@@ -1089,16 +1166,19 @@ const TeamsPage = ({ user }) => {
           <div className="modal">
             <div className="modal-title">Join a Public Team</div>
             <div className="form-group"><label className="form-label">Search Teams</label>
-              <input className="form-input" placeholder="Search by name or project…"/></div>
-            {[{name:"Data Wizards",project:"Predictive Analytics",type:"Research"},{name:"Mobile Crew",project:"Campus Navigation",type:"Hackathon"}].map((t,i)=>(
-              <div key={i} className="request-item">
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:600,fontSize:14}}>{t.name}</div>
-                  <div style={{fontSize:12,color:"var(--text3)"}}>{t.project} · {t.type}</div>
+              <input className="form-input" placeholder="Search by name or project…" value={joinSearch} onChange={e=>setJoinSearch(e.target.value)}/></div>
+            {publicTeams.filter(t=>!joinSearch||t.name.toLowerCase().includes(joinSearch.toLowerCase())||((t.project||"").toLowerCase().includes(joinSearch.toLowerCase()))).length===0
+              ?<div style={{color:"var(--text3)",fontSize:13,padding:"12px 0"}}>No public teams found. Create one or ask teammates to make their team public.</div>
+              :publicTeams.filter(t=>!joinSearch||t.name.toLowerCase().includes(joinSearch.toLowerCase())||((t.project||"").toLowerCase().includes(joinSearch.toLowerCase()))).map((t,i)=>(
+                <div key={i} className="request-item">
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:14}}>{t.name}</div>
+                    <div style={{fontSize:12,color:"var(--text3)"}}>{t.project}{t.type?" · "+t.type:""}</div>
+                  </div>
+                  <button className="btn btn-primary btn-sm" onClick={()=>requestJoin(t)}>Join</button>
                 </div>
-                <button className="btn btn-primary btn-sm">Request to Join</button>
-              </div>
-            ))}
+              ))
+            }
             <div className="modal-footer"><button className="btn btn-ghost" onClick={()=>setJoinModal(false)}>Close</button></div>
           </div>
         </div>
