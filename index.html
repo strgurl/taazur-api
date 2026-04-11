@@ -969,9 +969,11 @@ const TeamDetailPage = ({ team, onBack, user }) => {
     if(!team.id) return;
     const unsub = firebase.firestore()
       .collection("teams").doc(team.id)
-      .collection("messages").orderBy("timestamp","asc")
+      .collection("messages")
       .onSnapshot(snap=>{
-        setMessages(snap.docs.map(d=>({id:d.id,...d.data()})));
+        const msgs=snap.docs.map(d=>({id:d.id,...d.data()}));
+        msgs.sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
+        setMessages(msgs);
         setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:"smooth"}),50);
       });
     return ()=>unsub();
@@ -1371,9 +1373,11 @@ const AppShell = ({ user, onLogout, setUser }) => {
   useEffect(()=>{
     if(!uid) return;
     const unsub = firebase.firestore().collection("users").doc(uid)
-      .collection("notifications").orderBy("timestamp","desc").limit(20)
+      .collection("notifications").limit(30)
       .onSnapshot(snap=>{
-        setNotifs(snap.docs.map(d=>({id:d.id,...d.data()})));
+        const items=snap.docs.map(d=>({id:d.id,...d.data()}));
+        items.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+        setNotifs(items);
       });
     return ()=>unsub();
   },[uid]);
