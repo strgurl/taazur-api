@@ -13,14 +13,14 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 <script>
-  firebase.initializeApp({
-    apiKey: "AIzaSyDTuleE7t0NRf3LbmsVcd-RtYY_Yn_wt4A",
-    authDomain: "taazur-app.firebaseapp.com",
-    projectId: "taazur-app",
-    storageBucket: "taazur-app.firebasestorage.app",
-    messagingSenderId: "759973270958",
-    appId: "1:759973270958:web:ad5b8cd800da7cfd5b643f"
-  });
+firebase.initializeApp({
+  apiKey:"AIzaSyDTuleE7t0NRf3LbmsVcd-RtYY_Yn_wt4A",
+  authDomain:"taazur-app.firebaseapp.com",
+  projectId:"taazur-app",
+  storageBucket:"taazur-app.firebasestorage.app",
+  messagingSenderId:"759973270958",
+  appId:"1:759973270958:web:ad5b8cd800da7cfd5b643f"
+});
 </script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -280,10 +280,6 @@ const { useState, useEffect, useRef } = React;
 const LOGO_SRC = document.getElementById('logo-data').textContent.trim();
 
 // ── MOCK DATA ──────────────────────────────────
-const MOCK_USERS = [
-  { id:1, name:"Sarah Al-Rashid", email:"sarah@uni.edu", password:"123456", major:"Computer Science", college:"Engineering", year:"2" },
-  { id:2, name:"Khalid Mansour",  email:"khalid@uni.edu", password:"123456", major:"Data Science", college:"Science", year:"4" },
-];
 const ALL_SKILLS = ["Python","JavaScript","React","Node.js","Machine Learning","Data Analysis","UI/UX Design","Figma","Deep Learning","Backend Dev","Mobile Dev","SQL","DevOps","Cybersecurity","NLP","Computer Vision","Flutter","Swift","Project Management","Research"];
 const SKILL_LEVEL_LABELS = { 1:"Beginner", 2:"Intermediate", 3:"Advanced" };
 const API = "https://taazur-api.onrender.com";
@@ -325,15 +321,14 @@ const LoginPage = ({ onLogin, onSwitch }) => {
     if(!email||!password){setError("Please fill in all fields.");return;}
     setLoading(true);
     try {
-      const cred = await firebase.auth().signInWithEmailAndPassword(email.trim(), password);
+      const cred = await firebase.auth().signInWithEmailAndPassword(email.trim(),password);
       const doc = await firebase.firestore().collection("users").doc(cred.user.uid).get();
-      const userData = doc.exists ? {...doc.data(), user_id:cred.user.uid, id:cred.user.uid}
-        : {user_id:cred.user.uid, id:cred.user.uid, name:email, email:email.trim().toLowerCase()};
-      onLogin(userData);
-    } catch(e) {
-      const msg = (e.code==="auth/user-not-found"||e.code==="auth/wrong-password"||e.code==="auth/invalid-credential")
-        ? "Invalid email or password." : "Login failed. Please try again.";
-      setError(msg);
+      const data = doc.exists ? {...doc.data(),user_id:cred.user.uid,id:cred.user.uid}
+        : {user_id:cred.user.uid,id:cred.user.uid,name:email,email:email.trim().toLowerCase()};
+      onLogin(data);
+    } catch(e){
+      setError(e.code==="auth/user-not-found"||e.code==="auth/wrong-password"||e.code==="auth/invalid-credential"
+        ?"Invalid email or password.":"Login failed. Try again.");
     }
     setLoading(false);
   };
@@ -377,129 +372,102 @@ const SignupPage = ({ onLogin, onSwitch }) => {
   const [error,setError]=useState("");
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const toggleSkill=s=>setSkills(a=>a.includes(s)?a.filter(x=>x!==s):[...a,s]);
-
   const handleNext=e=>{
     e.preventDefault(); setError("");
     if(!form.name||!form.email||!form.password){setError("Name, email and password are required.");return;}
     if(form.password.length<6){setError("Password must be at least 6 characters.");return;}
     setStep(2);
   };
-
   const handleCreate=async()=>{
     if(skills.length===0){setError("Please select at least one skill.");return;}
     setError(""); setLoading(true);
     try {
-      const cred = await firebase.auth().createUserWithEmailAndPassword(form.email.trim(), form.password);
-      const uid = cred.user.uid;
-      const userObj = {
-        user_id:uid, id:uid,
-        name:form.name.trim(), email:form.email.trim().toLowerCase(),
-        major:form.major, college:form.college, year:form.year,
-        profileSkills:skills,
-        skillLevels:Object.fromEntries(skills.map(s=>[s,2]))
-      };
+      const cred=await firebase.auth().createUserWithEmailAndPassword(form.email.trim(),form.password);
+      const uid=cred.user.uid;
+      const userObj={user_id:uid,id:uid,name:form.name.trim(),email:form.email.trim().toLowerCase(),
+        major:form.major,college:form.college,year:form.year,profileSkills:skills,
+        skillLevels:Object.fromEntries(skills.map(s=>[s,2]))};
       await firebase.firestore().collection("users").doc(uid).set(userObj);
       try {
-        const skillsDict={};
-        skills.forEach(s=>{const k=SKILL_MAP[s];if(k)skillsDict[k]=Math.min(1.0,(skillsDict[k]||0)+0.7);});
+        const d={};
+        skills.forEach(s=>{const k=SKILL_MAP[s];if(k)d[k]=Math.min(1.0,(d[k]||0)+0.7);});
         await fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({user_id:uid,name:userObj.name,major:form.major,year:form.year,skills:skillsDict,needs:[]})});
-      } catch(e){ console.warn("Backend registration failed, continuing."); }
-      // Send email verification
-      try { await firebase.auth().currentUser.sendEmailVerification(); } catch(e){}
+          body:JSON.stringify({user_id:uid,name:userObj.name,major:form.major,year:form.year,skills:d,needs:[]})});
+      } catch(e){}
       onLogin(userObj);
-    } catch(e) {
-      const msg = e.code==="auth/email-already-in-use" ? "An account with this email already exists."
-        : e.code==="auth/weak-password" ? "Password must be at least 6 characters."
-        : "Signup failed. Please try again.";
-      setError(msg);
+    } catch(e){
+      setError(e.code==="auth/email-already-in-use"?"Email already registered."
+        :e.code==="auth/weak-password"?"Password too short.":"Signup failed. Try again.");
     }
     setLoading(false);
   };
-
   if(step===1) return (
     <div className="auth-shell">
       <div className="auth-left">
-        <div className="auth-logo-area">
-          <img src={LOGO_SRC} className="auth-logo-img" alt="Taazur Logo"/>
-          <div className="auth-brand">Taazur<span>.</span></div>
-        </div>
-        <p className="auth-tagline">AI-based student team formation system that helps you find the perfect teammates based on your skills and needs.</p>
-        {["Set up your skill profile in minutes","Get matched with compatible teammates","Form teams and start building together","Connect with the best talent at your university"].map((f,i)=>(
-          <div className="auth-feature" key={i}><span className="auth-feature-dot"/>{f}</div>
-        ))}
+        <div className="auth-logo-area"><img src={LOGO_SRC} className="auth-logo-img" alt="Taazur Logo"/>
+          <div className="auth-brand">Taazur<span>.</span></div></div>
+        <p className="auth-tagline">AI-based student team formation system.</p>
+        {["Set up your profile in minutes","Get matched with compatible teammates","Build teams and start projects"].map((f,i)=>(
+          <div className="auth-feature" key={i}><span className="auth-feature-dot"/>{f}</div>))}
       </div>
-      <div className="auth-right">
-        <div className="auth-card">
-          <div className="auth-card-title">Create account</div>
-          <div className="auth-card-sub">Join Taazur — it's free</div>
-          {error&&<div className="error-banner">{error}</div>}
-          <form onSubmit={handleNext}>
-            <div className="form-group"><label className="form-label">Full Name</label>
-              <input className="form-input" placeholder="Your full name" value={form.name} onChange={e=>set("name",e.target.value)}/></div>
-            <div className="form-group"><label className="form-label">Email Address</label>
-              <input className="form-input" type="email" placeholder="you@university.edu" value={form.email} onChange={e=>set("email",e.target.value)}/></div>
-            <div className="form-group"><label className="form-label">Password</label>
-              <input className="form-input" type="password" placeholder="Create a strong password" value={form.password} onChange={e=>set("password",e.target.value)}/></div>
-            <div className="form-row">
-              <div className="form-group"><label className="form-label">Major</label>
-                <input className="form-input" placeholder="e.g. Computer Science" value={form.major} onChange={e=>set("major",e.target.value)}/></div>
-              <div className="form-group"><label className="form-label">College / Faculty</label>
-                <input className="form-input" placeholder="e.g. Engineering" value={form.college} onChange={e=>set("college",e.target.value)}/></div>
-            </div>
-            <div className="form-group"><label className="form-label">Academic Year</label>
-              <select className="form-select" value={form.year} onChange={e=>set("year",e.target.value)}>
-                <option value="">Select year…</option>
-                {[1,2,3,4,5,6].map(y=><option key={y} value={String(y)}>Year {y}</option>)}
-              </select></div>
-            <button type="submit" className="btn btn-primary btn-full btn-lg" style={{marginTop:4}}>Next: Choose Skills →</button>
-          </form>
-          <div className="auth-switch">Already have an account? <a onClick={onSwitch}>Sign in</a></div>
-        </div>
-      </div>
+      <div className="auth-right"><div className="auth-card">
+        <div className="auth-card-title">Create account</div>
+        <div className="auth-card-sub">Step 1 of 2 — Your info</div>
+        {error&&<div className="error-banner">{error}</div>}
+        <form onSubmit={handleNext}>
+          <div className="form-group"><label className="form-label">Full Name</label>
+            <input className="form-input" placeholder="Your full name" value={form.name} onChange={e=>set("name",e.target.value)}/></div>
+          <div className="form-group"><label className="form-label">Email</label>
+            <input className="form-input" type="email" placeholder="you@university.edu" value={form.email} onChange={e=>set("email",e.target.value)}/></div>
+          <div className="form-group"><label className="form-label">Password</label>
+            <input className="form-input" type="password" placeholder="Min. 6 characters" value={form.password} onChange={e=>set("password",e.target.value)}/></div>
+          <div className="form-row">
+            <div className="form-group"><label className="form-label">Major</label>
+              <input className="form-input" placeholder="e.g. Computer Science" value={form.major} onChange={e=>set("major",e.target.value)}/></div>
+            <div className="form-group"><label className="form-label">College</label>
+              <input className="form-input" placeholder="e.g. Engineering" value={form.college} onChange={e=>set("college",e.target.value)}/></div>
+          </div>
+          <div className="form-group"><label className="form-label">Academic Year</label>
+            <select className="form-select" value={form.year} onChange={e=>set("year",e.target.value)}>
+              <option value="">Select year</option>
+              {[1,2,3,4,5,6].map(y=><option key={y} value={String(y)}>Year {y}</option>)}
+            </select></div>
+          <button type="submit" className="btn btn-primary btn-full btn-lg" style={{marginTop:4}}>Next: Choose Skills</button>
+        </form>
+        <div className="auth-switch">Already have an account? <a onClick={onSwitch}>Sign in</a></div>
+      </div></div>
     </div>
   );
-
   return (
     <div className="auth-shell">
       <div className="auth-left">
-        <div className="auth-logo-area">
-          <img src={LOGO_SRC} className="auth-logo-img" alt="Taazur Logo"/>
-          <div className="auth-brand">Taazur<span>.</span></div>
-        </div>
-        <p className="auth-tagline">Select the skills you have — the AI uses them to find your ideal teammates.</p>
-        {["Skill-based compatibility matching","AI-generated match explanations","Real-time team collaboration tools"].map((f,i)=>(
-          <div className="auth-feature" key={i}><span className="auth-feature-dot"/>{f}</div>
-        ))}
+        <div className="auth-logo-area"><img src={LOGO_SRC} className="auth-logo-img" alt="Taazur Logo"/>
+          <div className="auth-brand">Taazur<span>.</span></div></div>
+        <p className="auth-tagline">Select your skills — the AI uses them to find your best teammates.</p>
       </div>
-      <div className="auth-right" style={{overflowY:"auto"}}>
-        <div className="auth-card">
-          <div className="auth-card-title">Your skills</div>
-          <div className="auth-card-sub">Select all that apply</div>
-          {error&&<div className="error-banner">{error}</div>}
-          <div className="skill-chip-select" style={{marginBottom:16}}>
-            {ALL_SKILLS.map(s=>(
-              <button key={s} type="button"
-                style={{
-                  padding:"6px 14px", borderRadius:"99px", fontSize:"13px",
-                  cursor:"pointer", transition:"all .2s", fontFamily:"DM Sans,sans-serif",
-                  border: skills.includes(s) ? "1.5px solid var(--accent)" : "1.5px solid var(--border)",
-                  background: skills.includes(s) ? "var(--accent)" : "var(--white)",
-                  color: skills.includes(s) ? "var(--white)" : "var(--text2)",
-                  margin:"2px"
-                }}
-                onClick={()=>toggleSkill(s)}>{s}</button>
-            ))}
-          </div>
-          {skills.length>0&&<div style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>{skills.length} skill{skills.length!==1?"s":""} selected</div>}
-          <div style={{display:"flex",gap:10}}>
-            <button className="btn btn-outline" onClick={()=>{setStep(1);setError("");}}>← Back</button>
-            <button className="btn btn-accent btn-full btn-lg" onClick={handleCreate} disabled={loading||skills.length===0}>
-              {loading?"Creating account…":"Create Account →"}
+      <div className="auth-right" style={{overflowY:"auto"}}><div className="auth-card">
+        <div className="auth-card-title">Your skills</div>
+        <div className="auth-card-sub">Step 2 of 2 — Select all that apply</div>
+        {error&&<div className="error-banner">{error}</div>}
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:16,marginTop:8}}>
+          {ALL_SKILLS.map(s=>(
+            <button key={s} type="button" onClick={()=>toggleSkill(s)}
+              style={{padding:"6px 12px",borderRadius:"99px",fontSize:13,cursor:"pointer",fontFamily:"DM Sans,sans-serif",
+                border:skills.includes(s)?"1.5px solid var(--accent)":"1.5px solid var(--border)",
+                background:skills.includes(s)?"var(--accent)":"var(--white)",
+                color:skills.includes(s)?"var(--white)":"var(--text2)"}}>
+              {s}
             </button>
-          </div>
+          ))}
         </div>
-      </div>
+        {skills.length>0&&<div style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>{skills.length} selected</div>}
+        <div style={{display:"flex",gap:10}}>
+          <button className="btn btn-outline" onClick={()=>{setStep(1);setError("");}}>Back</button>
+          <button className="btn btn-accent btn-full btn-lg" onClick={handleCreate} disabled={loading||skills.length===0}>
+            {loading?"Creating account...":"Create Account"}
+          </button>
+        </div>
+      </div></div>
     </div>
   );
 };
@@ -550,13 +518,12 @@ const Sidebar = ({ page, setPage, user, onLogout, pendingCount, open, onClose })
 
 // ── DASHBOARD ─────────────────────────────────
 const DashboardPage = ({ user, setPage }) => {
-  const calcCompletion = (u) => {
-    let s = 0;
-    if(u.name) s+=20; if(u.major) s+=20; if(u.year) s+=20;
-    if(u.bio) s+=20; if(u.skillLevels&&Object.keys(u.skillLevels).length>0) s+=20;
+  const profileCompletion = (() => {
+    let s=0;
+    if(user.name)s+=20; if(user.major)s+=20; if(user.year)s+=20;
+    if(user.bio)s+=20; if(user.skillLevels&&Object.keys(user.skillLevels).length>0)s+=20;
     return s;
-  };
-  const profileCompletion = calcCompletion(user);
+  })();
   const checkItems = [
     {label:"Basic Info",done:true},
     {label:"Skills Added",done:!!(user.skillLevels&&Object.keys(user.skillLevels).length>0)},
@@ -573,23 +540,21 @@ const DashboardPage = ({ user, setPage }) => {
         </div>
         <div className="welcome-actions">
           <button className="action-btn action-btn-primary" onClick={()=>setPage("find")}>◎ Find Teammates</button>
-          <button className="action-btn action-btn-secondary" onClick={()=>setPage("teams")}>⬡ My Teams</button>
+          <button className="action-btn action-btn-secondary" onClick={()=>setPage("teams")}>
+            ⬡ My Teams
+          </button>
           <button className="action-btn action-btn-secondary" onClick={()=>setPage("teams")}>⊕ Join Team</button>
         </div>
       </div>
+
       <div className="two-col">
         <div className="card">
           <div className="flex-between mb-16">
-            <div>
-              <div className="card-title">Profile Completion</div>
-              <div className="card-sub">{profileCompletion===100?"Your profile is complete!":"Complete to get better matches"}</div>
-            </div>
-            <span style={{fontFamily:"Syne,sans-serif",fontWeight:800,fontSize:22,color:profileCompletion===100?"var(--green)":"var(--accent)"}}>
-              {profileCompletion===100?"🎉":""+profileCompletion+"%"}
-            </span>
+            <div><div className="card-title">Profile Completion</div><div className="card-sub">Complete to get better matches</div></div>
+            <span style={{fontFamily:"Syne,sans-serif",fontWeight:800,fontSize:22,color:profileCompletion===100?"var(--green)":"var(--accent)"}}>{profileCompletion===100?"100% Complete":profileCompletion+"%"}</span>
           </div>
           <div className="completion-bar" style={{height:8,marginBottom:16}}>
-            <div className="completion-fill" style={{width:profileCompletion+"%",background:profileCompletion===100?"var(--green)":undefined}}/>
+            <div className="completion-fill" style={{width:profileCompletion+"%"}}/>
           </div>
           {checkItems.map((item,i)=>(
             <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
@@ -597,18 +562,16 @@ const DashboardPage = ({ user, setPage }) => {
               <span style={{fontSize:14,color:item.done?"var(--text)":"var(--text3)"}}>{item.label}</span>
             </div>
           ))}
-          <button className="btn btn-primary btn-sm mt-16" onClick={()=>setPage("profile")}>
-            {profileCompletion===100?"View Profile →":"Complete Profile →"}
-          </button>
+          <button className="btn btn-primary btn-sm mt-16" onClick={()=>setPage("profile")}>Complete Profile →</button>
         </div>
         <div className="card">
           <div className="card-title mb-16">Get Started</div>
           <div style={{color:"var(--text3)",fontSize:14,lineHeight:1.8}}>
-            <div style={{display:"flex",gap:10,marginBottom:10}}><span style={{color:"var(--accent)",fontWeight:700}}>1.</span><span>Complete your profile with your skills and info.</span></div>
-            <div style={{display:"flex",gap:10,marginBottom:10}}><span style={{color:"var(--accent)",fontWeight:700}}>2.</span><span>Go to <b>Find Teammates</b> and select your skills.</span></div>
+            <div style={{display:"flex",gap:10,marginBottom:10}}><span style={{color:"var(--accent)",fontWeight:700}}>1.</span><span>Complete your profile.</span></div>
+            <div style={{display:"flex",gap:10,marginBottom:10}}><span style={{color:"var(--accent)",fontWeight:700}}>2.</span><span>Go to <b>Find Teammates</b> and select skills.</span></div>
             <div style={{display:"flex",gap:10}}><span style={{color:"var(--accent)",fontWeight:700}}>3.</span><span>Let the AI match you with compatible students.</span></div>
           </div>
-          <button className="btn btn-accent btn-sm mt-16" onClick={()=>setPage("find")}>⚡ Find My Teammates</button>
+          <button className="btn btn-accent btn-sm mt-16" onClick={()=>setPage("find")}>Find My Teammates</button>
         </div>
       </div>
     </div>
@@ -621,59 +584,35 @@ const FindPage = ({ user }) => {
   const [neededSkills,setNeededSkills]=useState([]);
   const [results,setResults]=useState(null);
   const [loading,setLoading]=useState(false);
-  const [error,setError]=useState(null);
   const [invitedIds,setInvitedIds]=useState([]);
   const [profileModal,setProfileModal]=useState(null);
   const toggle=(skill,arr,setArr)=>setArr(a=>a.includes(skill)?a.filter(s=>s!==skill):[...a,skill]);
-
-  const scoreUsers = (otherUsers) => {
-    const myId = user.user_id || user.id;
-    const neededSet = new Set(neededSkills);
-    return otherUsers
-      .filter(u => (u.user_id||u.id) !== myId && u.name)
-      .map(u => {
-        const theirSkills = u.profileSkills || [];
-        const covered = theirSkills.filter(s => neededSet.has(s)).length;
-        const coverageScore = neededSet.size > 0 ? covered / neededSet.size : 0;
-        const mySet = new Set(mySkills);
-        const theirSet = new Set(theirSkills);
-        const allSkills = new Set([...mySet, ...theirSet]);
-        const overlap = [...mySet].filter(s => theirSet.has(s)).length;
-        const diversity = allSkills.size > 0 ? 1 - overlap / allSkills.size : 0.5;
-        const raw = neededSet.size > 0 ? coverageScore * 0.7 + diversity * 0.3 : diversity;
-        const score = Math.min(100, Math.max(10, Math.round(raw * 100)));
-        const provides = theirSkills.filter(s => neededSet.has(s));
-        const explanation = provides.length > 0
-          ? "Has needed skills: " + provides.slice(0,3).join(", ")
-          : theirSkills.length > 0
-            ? "Skills: " + theirSkills.slice(0,3).join(", ")
-            : "Complementary profile";
-        return {
-          id: u.user_id || u.id,
-          name: u.name,
-          major: u.major || "",
-          year: u.year ? "Year "+u.year : "",
-          score,
-          skills: theirSkills,
-          explanation,
-          available: true,
-          fullProfile: u
-        };
-      })
-      .sort((a,b) => b.score - a.score);
-  };
+  const myId = user.user_id||user.id;
 
   const findMatches = async () => {
-    if(mySkills.length === 0) return;
-    setLoading(true); setResults(null); setError(null);
+    if(mySkills.length===0) return;
+    setLoading(true); setResults(null);
     try {
-      const snapshot = await firebase.firestore().collection("users").get();
-      const allUsers = snapshot.docs.map(d => d.data());
-      const scored = scoreUsers(allUsers);
+      const snap = await firebase.firestore().collection("users").get();
+      const needed = new Set(neededSkills);
+      const scored = snap.docs.map(d=>d.data())
+        .filter(u=>(u.user_id||u.id)!==myId && u.name)
+        .map(u=>{
+          const their = new Set(u.profileSkills||[]);
+          const mine = new Set(mySkills);
+          const cov = needed.size>0 ? [...needed].filter(s=>their.has(s)).length/needed.size : 0;
+          const all = new Set([...mine,...their]);
+          const ov = all.size>0 ? [...mine].filter(s=>their.has(s)).length/all.size : 0;
+          const score = Math.min(100,Math.max(10,Math.round((needed.size>0?cov*0.7+(1-ov)*0.3:(1-ov))*100)));
+          const prov = (u.profileSkills||[]).filter(s=>needed.has(s));
+          return {id:u.user_id||u.id,name:u.name,major:u.major||"",
+            year:u.year?"Year "+u.year:"",score,skills:u.profileSkills||[],
+            explanation:prov.length>0?"Has: "+prov.slice(0,3).join(", "):"Complementary skills",
+            available:true,fullProfile:u};
+        })
+        .sort((a,b)=>b.score-a.score);
       setResults(scored);
-    } catch(e) {
-      setError("Could not load users. Please try again.");
-    }
+    } catch(e){ setResults([]); }
     setLoading(false);
   };
   return (
@@ -727,8 +666,8 @@ const FindPage = ({ user }) => {
                   <div className="match-footer">
                     <div style={{fontSize:12,color:"var(--text3)"}}>{match.year}</div>
                     <div style={{display:"flex",gap:6}}>
-                      <button className="btn btn-outline btn-sm" onClick={()=>setProfileModal(match.fullProfile)}>View Profile</button>
-                      {invited?<div className="invite-sent">✓ Invite sent</div>:
+                      {match.fullProfile&&<button className="btn btn-outline btn-sm" onClick={()=>setProfileModal(match.fullProfile)}>View Profile</button>}
+                      {invited?<div className="invite-sent">Invited</div>:
                         <button className="btn btn-primary btn-sm" onClick={()=>setInvitedIds(ids=>[...ids,match.id])}>Invite +</button>}
                     </div>
                   </div>
@@ -744,28 +683,25 @@ const FindPage = ({ user }) => {
       {!results&&!loading&&(
         <div className="empty-state"><div className="empty-icon">◎</div><div className="empty-title">Ready to find your team?</div><div className="empty-sub">Select your skills above and click "Find My Matches"</div></div>
       )}
-      {error&&!loading&&<div className="error-banner">⚠ {error}</div>}
       {profileModal&&(
-        <div className="modal-overlay" onClick={e=>{if(e.target.className.includes("modal-overlay"))setProfileModal(null);}}>
+        <div className="modal-overlay" onClick={e=>{if(e.target.className&&e.target.className.includes("modal-overlay"))setProfileModal(null);}}>
           <div className="modal">
             <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20}}>
               <div className="avatar lg">{getInitials(profileModal.name)}</div>
               <div>
                 <div style={{fontFamily:"Syne,sans-serif",fontSize:20,fontWeight:800}}>{profileModal.name}</div>
-                <div style={{fontSize:13,color:"var(--text3)"}}>{profileModal.major}{profileModal.year?" · Year "+profileModal.year:""}</div>
+                <div style={{fontSize:13,color:"var(--text3)"}}>{profileModal.major}{profileModal.year?" - Year "+profileModal.year:""}</div>
                 {profileModal.college&&<div style={{fontSize:13,color:"var(--text3)"}}>{profileModal.college}</div>}
               </div>
             </div>
-            {profileModal.bio&&<p style={{fontSize:14,color:"var(--text2)",marginBottom:16,lineHeight:1.6}}>{profileModal.bio}</p>}
-            <div style={{marginBottom:8}}>
-              <div style={{fontSize:12,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.8px",color:"var(--text3)",marginBottom:8}}>Skills</div>
-              <div className="tags-wrap">
-                {(profileModal.profileSkills||[]).length>0
-                  ?(profileModal.profileSkills||[]).map(s=><span key={s} className="tag tag-accent">{s}</span>)
-                  :<span style={{fontSize:13,color:"var(--text3)"}}>No skills listed</span>}
-              </div>
+            {profileModal.bio&&<p style={{fontSize:14,color:"var(--text2)",marginBottom:16}}>{profileModal.bio}</p>}
+            <div style={{fontSize:12,fontWeight:600,textTransform:"uppercase",color:"var(--text3)",marginBottom:8}}>Skills</div>
+            <div className="tags-wrap">
+              {(profileModal.profileSkills||[]).length>0
+                ?(profileModal.profileSkills||[]).map(s=><span key={s} className="tag tag-accent">{s}</span>)
+                :<span style={{fontSize:13,color:"var(--text3)"}}>No skills listed</span>}
             </div>
-            <div className="modal-footer">
+            <div className="modal-footer" style={{marginTop:16}}>
               <button className="btn btn-ghost" onClick={()=>setProfileModal(null)}>Close</button>
             </div>
           </div>
@@ -812,25 +748,20 @@ const ProfilePage = ({ user, updateUser, onLogout }) => {
         })
       });
     } catch(e) { console.warn("API register failed, continuing locally"); }
-    const updated = {...user,...form,skillLevels,profileComplete:true,profileSkills:Object.keys(skillLevels)};
-    try {
-      await firebase.firestore().collection("users").doc(updated.user_id||updated.id).set(updated,{merge:true});
-    } catch(e){ console.warn("Firestore save failed"); }
+    const updated={...user,...form,skillLevels,profileComplete:true,profileSkills:Object.keys(skillLevels)};
+    try{ await firebase.firestore().collection("users").doc(updated.user_id||updated.id).set(updated,{merge:true}); }catch(e){}
     updateUser(updated);
     setEditMode(false); setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
-
   const deleteAccount=async()=>{
     if(!window.confirm("Delete your account? This cannot be undone.")) return;
-    if(!window.confirm("All your data will be permanently deleted. Are you sure?")) return;
     try {
-      const uid = user.user_id || user.id;
+      const uid = user.user_id||user.id;
       await firebase.firestore().collection("users").doc(uid).delete();
       await firebase.auth().currentUser.delete();
     } catch(e){
-      if(e.code==="auth/requires-recent-login")
-        alert("Please sign out and sign back in first, then try again.");
-      else alert("Could not delete account: "+e.message);
+      if(e.code==="auth/requires-recent-login") alert("Sign out and back in first, then try again.");
+      else alert("Could not delete: "+e.message);
     }
   };
   return (
@@ -849,8 +780,8 @@ const ProfilePage = ({ user, updateUser, onLogout }) => {
         <div style={{display:"flex",gap:10,flexDirection:"column",alignItems:"flex-end",position:"relative",zIndex:1}}>
           <button className="btn btn-outline" style={{color:"rgba(255,255,255,.7)",borderColor:"rgba(255,255,255,.2)",background:"rgba(255,255,255,.05)"}}
             onClick={()=>setEditMode(!editMode)}>{editMode?"Cancel":"✎ Edit Profile"}</button>
-          <button className="btn btn-danger btn-sm" onClick={onLogout}>↩ Sign Out</button>
-          <button className="btn btn-sm" style={{background:"transparent",border:"1.5px solid var(--red)",color:"var(--red)",padding:"6px 12px",borderRadius:"var(--r-sm)",fontSize:13,cursor:"pointer"}} onClick={deleteAccount}>🗑 Delete Account</button>
+          <button className="btn btn-danger btn-sm" onClick={onLogout}>Sign Out</button>
+          <button className="btn btn-sm" style={{background:"transparent",border:"1.5px solid var(--red)",color:"var(--red)",padding:"6px 12px",borderRadius:"var(--r-sm)",fontSize:12,cursor:"pointer",fontFamily:"DM Sans,sans-serif"}} onClick={deleteAccount}>Delete Account</button>
         </div>
       </div>
       {saved&&<div className="success-banner mb-24">✓ Profile saved successfully!</div>}
@@ -939,21 +870,9 @@ const TeamDetailPage = ({ team, onBack, user }) => {
   const myId = user ? (user.user_id||user.id) : null;
   const isOwner = myId && team.createdBy===myId;
 
-  const kickMember=async(member)=>{
-    if(!window.confirm("Remove "+member.name+" from this team?")) return;
-    try {
-      await firebase.firestore().collection("teams").doc(team.id).update({
-        memberIds: firebase.firestore.FieldValue.arrayRemove(member.uid),
-        members: firebase.firestore.FieldValue.arrayRemove(member)
-      });
-      setTeamMembers(m=>m.filter(m2=>m2.uid!==member.uid));
-    } catch(e){ alert("Could not remove member: "+e.message); }
-  };
-
-  // Load member skills from Firestore
   useEffect(()=>{
     if(!team.members) return;
-    const uids = team.members.map(m=>m.uid).filter(Boolean);
+    const uids = (team.members||[]).map(m=>m.uid).filter(Boolean);
     Promise.all(uids.map(uid=>
       firebase.firestore().collection("users").doc(uid).get()
         .then(d=>d.exists?{uid,...d.data()}:null).catch(()=>null)
@@ -964,33 +883,39 @@ const TeamDetailPage = ({ team, onBack, user }) => {
     });
   },[team.id]);
 
-  // Real-time chat listener
   useEffect(()=>{
     if(!team.id) return;
-    const unsub = firebase.firestore()
-      .collection("teams").doc(team.id)
+    const unsub = firebase.firestore().collection("teams").doc(team.id)
       .collection("messages")
       .onSnapshot(snap=>{
         const msgs=snap.docs.map(d=>({id:d.id,...d.data()}));
         msgs.sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
         setMessages(msgs);
-        setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:"smooth"}),50);
+        setTimeout(()=>chatEndRef.current&&chatEndRef.current.scrollIntoView({behavior:"smooth"}),50);
       });
     return ()=>unsub();
   },[team.id]);
 
+  const kickMember=async(member)=>{
+    if(!window.confirm("Remove "+member.name+" from this team?")) return;
+    try {
+      await firebase.firestore().collection("teams").doc(team.id).update({
+        memberIds:firebase.firestore.FieldValue.arrayRemove(member.uid),
+        members:firebase.firestore.FieldValue.arrayRemove(member)
+      });
+      setTeamMembers(m=>m.filter(m2=>m2.uid!==member.uid));
+    } catch(e){ alert("Could not remove: "+e.message); }
+  };
+
   const sendMsg=async()=>{
     if(!chatInput.trim()||!myId) return;
-    const txt = chatInput; setChatInput("");
+    const txt=chatInput; setChatInput("");
     try {
       await firebase.firestore().collection("teams").doc(team.id)
         .collection("messages").add({
-          sender: user.name||"You",
-          text: txt,
-          uid: myId,
-          timestamp: Date.now()
+          sender:user.name||"You", text:txt, uid:myId, timestamp:Date.now()
         });
-    } catch(e){ console.warn("Chat send failed"); }
+    } catch(e){ console.warn("Chat send failed:",e.message); }
   };
   return (
     <div className="page page-enter">
@@ -1010,21 +935,22 @@ const TeamDetailPage = ({ team, onBack, user }) => {
         <div className="card">
           <div className="card-title mb-16">Team Members &amp; Skills</div>
           {teamMembers.map((m,i)=>{
-            const profile = m.uid ? memberProfiles[m.uid] : null;
-            const skills = profile?.profileSkills || m.skills || [];
+            const profile=m.uid?memberProfiles[m.uid]:null;
+            const skills=profile?.profileSkills||m.skills||[];
             return (
               <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:16,paddingBottom:16,borderBottom:i<teamMembers.length-1?"1px solid var(--border)":"none"}}>
                 <div className="avatar">{m.initials}</div>
-                <div>
+                <div style={{flex:1}}>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
                     <div style={{fontWeight:600,fontSize:14}}>{m.name}</div>
-                    {isOwner&&m.uid&&m.uid!==myId&&<button className="btn btn-danger btn-sm" style={{padding:"1px 8px",fontSize:11}} onClick={()=>kickMember(m)}>Kick</button>}
+                    {isOwner&&m.uid&&m.uid!==myId&&(
+                      <button className="btn btn-danger btn-sm" style={{padding:"1px 8px",fontSize:11}} onClick={()=>kickMember(m)}>Kick</button>
+                    )}
                   </div>
-                  {profile?.major&&<div style={{fontSize:12,color:"var(--text3)",marginBottom:4}}>{profile.major}{profile.year?" · Year "+profile.year:""}</div>}
+                  {profile&&profile.major&&<div style={{fontSize:12,color:"var(--text3)",marginBottom:4}}>{profile.major}{profile.year?" - Year "+profile.year:""}</div>}
                   <div className="tags-wrap" style={{marginTop:4}}>
-                    {skills.length>0
-                      ? skills.map(s=><span key={s} className="tag tag-accent">{s}</span>)
-                      : <span style={{fontSize:12,color:"var(--text3)"}}>No skills listed</span>}
+                    {skills.length>0?skills.map(s=><span key={s} className="tag tag-accent">{s}</span>)
+                      :<span style={{fontSize:12,color:"var(--text3)"}}>No skills listed</span>}
                   </div>
                 </div>
               </div>
@@ -1047,11 +973,11 @@ const TeamDetailPage = ({ team, onBack, user }) => {
             </div>
             <div className="chat-messages">
               {messages.map(msg=>{
-                const isMe = msg.uid===myId;
+                const isMe=msg.uid===myId;
                 return (
-                  <div key={msg.id} className={`chat-msg ${isMe?"chat-msg-me":"chat-msg-them"}`}>
+                  <div key={msg.id} className={"chat-msg "+(isMe?"chat-msg-me":"chat-msg-them")}>
                     {!isMe&&<div className="chat-sender">{msg.sender}</div>}
-                    <div className={`chat-bubble ${isMe?"chat-bubble-me":"chat-bubble-them"}`}>{msg.text}</div>
+                    <div className={"chat-bubble "+(isMe?"chat-bubble-me":"chat-bubble-them")}>{msg.text}</div>
                   </div>
                 );
               })}
@@ -1073,7 +999,6 @@ const TeamDetailPage = ({ team, onBack, user }) => {
 const TeamsPage = ({ user }) => {
   const [teams,setTeams]=useState([]);
   const [publicTeams,setPublicTeams]=useState([]);
-  const [requests,setRequests]=useState([]);
   const [showCreate,setShowCreate]=useState(false);
   const [selectedTeam,setSelectedTeam]=useState(null);
   const [newTeam,setNewTeam]=useState({name:"",project:"",type:"",privacy:"Public",skills:[]});
@@ -1084,122 +1009,104 @@ const TeamsPage = ({ user }) => {
   const [joinModal,setJoinModal]=useState(false);
   const [joinSearch,setJoinSearch]=useState("");
   const setNT=(k,v)=>setNewTeam(t=>({...t,[k]:v}));
-  const toggleTeamSkill=s=>setNewTeam(t=>({...t,skills:t.skills.includes(s)?t.skills.filter(x=>x!==s):[...t.skills,s]}));
-  const handleRequest=(id)=>setRequests(r=>r.filter(req=>req.id!==id));
-  const uid = user.user_id || user.id;
+  const toggleTS=s=>setNewTeam(t=>({...t,skills:t.skills.includes(s)?t.skills.filter(x=>x!==s):[...t.skills,s]}));
+  const uid=user.user_id||user.id;
 
   useEffect(()=>{
-    // Load user's teams from Firestore
-    firebase.firestore().collection("teams")
-      .where("memberIds","array-contains",uid)
-      .get()
-      .then(snap=>{
-        setTeams(snap.docs.map(d=>({...d.data(),id:d.id})));
-      }).catch(()=>{});
+    firebase.firestore().collection("teams").where("memberIds","array-contains",uid)
+      .get().then(snap=>setTeams(snap.docs.map(d=>({...d.data(),id:d.id})))).catch(()=>{});
   },[]);
 
   const createTeam=async()=>{
-    if(!newTeam.name)return;
-    const teamData = {
-      name:newTeam.name, project:newTeam.project, type:newTeam.type,
-      privacy:newTeam.privacy, skills:newTeam.skills,
-      status:"Recruiting",
+    if(!newTeam.name) return;
+    const td={name:newTeam.name,project:newTeam.project,type:newTeam.type,
+      privacy:newTeam.privacy,skills:newTeam.skills,status:"Recruiting",
       members:[{name:user.name,initials:getInitials(user.name),uid}],
-      memberIds:[uid],
-      pendingRequests:0, chat:[],
-      createdBy:uid, createdAt:Date.now()
-    };
+      memberIds:[uid],pendingMembers:[],createdBy:uid,createdAt:Date.now()};
     try {
-      const ref = await firebase.firestore().collection("teams").add(teamData);
-      setTeams(t=>[...t,{...teamData,id:ref.id}]);
-    } catch(e){ console.warn("Firestore save failed, showing locally"); setTeams(t=>[...t,{...teamData,id:Date.now().toString()}]); }
+      const ref=await firebase.firestore().collection("teams").add(td);
+      setTeams(t=>[...t,{...td,id:ref.id}]);
+    } catch(e){ setTeams(t=>[...t,{...td,id:String(Date.now())}]); }
     setNewTeam({name:"",project:"",type:"",privacy:"Public",skills:[]}); setShowCreate(false);
   };
 
-  const openJoinModal=async()=>{
+  const deleteTeam=async(teamId)=>{
+    if(!window.confirm("Delete this team?")) return;
+    try { await firebase.firestore().collection("teams").doc(teamId).delete(); } catch(e){}
+    setTeams(t=>t.filter(x=>x.id!==teamId));
+  };
+
+  const openJoin=async()=>{
     setJoinModal(true);
     try {
-      const snap = await firebase.firestore().collection("teams").where("privacy","==","Public").get();
-      setPublicTeams(snap.docs.map(d=>({...d.data(),id:d.id})).filter(t=>!t.memberIds?.includes(uid)));
+      const snap=await firebase.firestore().collection("teams").where("privacy","==","Public").get();
+      setPublicTeams(snap.docs.map(d=>({...d.data(),id:d.id})).filter(t=>!(t.memberIds||[]).includes(uid)));
     } catch(e){ setPublicTeams([]); }
   };
 
   const requestJoin=async(team)=>{
+    const req={uid,name:user.name,initials:getInitials(user.name),major:user.major||"",requestedAt:Date.now()};
     try {
-      const req = {uid, name:user.name, initials:getInitials(user.name), major:user.major||"", requestedAt:Date.now()};
       await firebase.firestore().collection("teams").doc(team.id).update({
-        pendingMembers: firebase.firestore.FieldValue.arrayUnion(req)
+        pendingMembers:firebase.firestore.FieldValue.arrayUnion(req)
       });
-      // Notify team owner
       try {
-        await firebase.firestore().collection("users").doc(team.createdBy).collection("notifications").add({
-          type:"join_request", fromName:user.name, teamId:team.id, teamName:team.name,
-          timestamp:Date.now(), read:false
-        });
+        await firebase.firestore().collection("users").doc(team.createdBy)
+          .collection("notifications").add({type:"join_request",fromName:user.name,
+            teamId:team.id,teamName:team.name,timestamp:Date.now(),read:false});
       } catch(e){}
-      setPublicTeams(t=>t.filter(pt=>pt.id!==team.id));
-      alert("Request sent! The team owner will review it.");
+      setPublicTeams(t=>t.filter(x=>x.id!==team.id));
+      alert("Request sent! The owner will review it.");
       setJoinModal(false);
     } catch(e){ alert("Could not send request."); }
   };
 
-  const acceptRequest=async(teamId, req)=>{
-    try {
-      const teamRef = firebase.firestore().collection("teams").doc(teamId);
-      await teamRef.update({
-        memberIds: firebase.firestore.FieldValue.arrayUnion(req.uid),
-        members: firebase.firestore.FieldValue.arrayUnion({name:req.name,initials:req.initials,uid:req.uid}),
-        pendingMembers: firebase.firestore.FieldValue.arrayRemove(req)
-      });
-      setTeams(t=>t.map(team=>team.id===teamId?{...team,
-        members:[...team.members,{name:req.name,initials:req.initials,uid:req.uid}],
-        memberIds:[...team.memberIds,req.uid],
-        pendingMembers:(team.pendingMembers||[]).filter(r=>r.uid!==req.uid)
-      }:team));
-    } catch(e){ alert("Could not accept request."); }
-  };
-
-  const declineRequest=async(teamId, req)=>{
+  const acceptRequest=async(teamId,req)=>{
     try {
       await firebase.firestore().collection("teams").doc(teamId).update({
-        pendingMembers: firebase.firestore.FieldValue.arrayRemove(req)
+        memberIds:firebase.firestore.FieldValue.arrayUnion(req.uid),
+        members:firebase.firestore.FieldValue.arrayUnion({name:req.name,initials:req.initials,uid:req.uid}),
+        pendingMembers:firebase.firestore.FieldValue.arrayRemove(req)
       });
-      setTeams(t=>t.map(team=>team.id===teamId?{...team,
-        pendingMembers:(team.pendingMembers||[]).filter(r=>r.uid!==req.uid)
-      }:team));
+      setTeams(t=>t.map(x=>x.id===teamId?{...x,
+        members:[...(x.members||[]),{name:req.name,initials:req.initials,uid:req.uid}],
+        memberIds:[...(x.memberIds||[]),req.uid],
+        pendingMembers:(x.pendingMembers||[]).filter(r=>r.uid!==req.uid)}:x));
+    } catch(e){ alert("Error: "+e.message); }
+  };
+
+  const declineRequest=async(teamId,req)=>{
+    try {
+      await firebase.firestore().collection("teams").doc(teamId).update({
+        pendingMembers:firebase.firestore.FieldValue.arrayRemove(req)
+      });
+      setTeams(t=>t.map(x=>x.id===teamId?{...x,
+        pendingMembers:(x.pendingMembers||[]).filter(r=>r.uid!==req.uid)}:x));
     } catch(e){}
   };
 
-  const searchInviteUsers=async(query)=>{
-    setInviteSearch(query);
-    if(query.trim().length<2){setInviteResults([]);return;}
+  const searchInvite=async(q)=>{
+    setInviteSearch(q);
+    if(q.trim().length<2){setInviteResults([]);return;}
     try {
-      const snap = await firebase.firestore().collection("users").get();
-      const results = snap.docs.map(d=>d.data())
-        .filter(u=>(u.user_id||u.id)!==uid && u.name && u.name.toLowerCase().includes(query.toLowerCase()));
-      setInviteResults(results.slice(0,5));
+      const snap=await firebase.firestore().collection("users").get();
+      setInviteResults(snap.docs.map(d=>d.data())
+        .filter(u=>(u.user_id||u.id)!==uid&&u.name&&u.name.toLowerCase().includes(q.toLowerCase()))
+        .slice(0,5));
     } catch(e){ setInviteResults([]); }
-  };
-  const deleteTeam=async(teamId)=>{
-    if(!window.confirm("Delete this team? This cannot be undone.")) return;
-    try {
-      await firebase.firestore().collection("teams").doc(teamId).delete();
-      setTeams(t=>t.filter(team=>team.id!==teamId));
-    } catch(e){ alert("Could not delete team."); }
   };
 
   const sendInvite=async(targetUser)=>{
-    const targetUid = targetUser.user_id||targetUser.id;
+    const tuid=targetUser.user_id||targetUser.id;
     try {
-      await firebase.firestore().collection("users").doc(targetUid)
-        .collection("notifications").add({
-          type:"team_invite", fromName:user.name, fromUid:uid,
-          teamId:inviteModal.id, teamName:inviteModal.name,
-          timestamp:Date.now(), read:false, responded:false
-        });
+      await firebase.firestore().collection("users").doc(tuid).collection("notifications").add({
+        type:"team_invite",fromName:user.name,fromUid:uid,
+        teamId:inviteModal.id,teamName:inviteModal.name,
+        timestamp:Date.now(),read:false,responded:false
+      });
       setInviteSent(true);
       setTimeout(()=>{setInviteSent(false);setInviteModal(null);setInviteSearch("");setInviteResults([]);},1500);
-    } catch(e){ alert("Invite failed. Make sure Firestore rules allow writing to other users notifications subcollection."); }
+    } catch(e){ alert("Invite failed. Check Firestore rules allow writing to other users notifications subcollection."); }
   };
   if(selectedTeam) return <TeamDetailPage team={selectedTeam} onBack={()=>setSelectedTeam(null)} user={user}/>;
   return (
@@ -1207,16 +1114,13 @@ const TeamsPage = ({ user }) => {
       <div className="flex-between mb-24">
         <div><div className="section-title">My Teams</div><div className="section-sub">Manage your project teams and invitations</div></div>
         <div style={{display:"flex",gap:10}}>
-          <button className="btn btn-outline" onClick={openJoinModal}>⊕ Join Team</button>
+          <button className="btn btn-outline" onClick={openJoin}>⊕ Join Team</button>
           <button className="btn btn-primary" onClick={()=>setShowCreate(!showCreate)}>+ Create Team</button>
         </div>
       </div>
       {teams.filter(t=>t.createdBy===uid&&(t.pendingMembers||[]).length>0).map(team=>(
         <div className="card mb-24" key={team.id}>
-          <div className="flex-between mb-16">
-            <div><div className="card-title">Join Requests — {team.name}</div></div>
-            <span className="badge">{(team.pendingMembers||[]).length}</span>
-          </div>
+          <div className="flex-between mb-16"><div className="card-title">Requests to join {team.name}</div><span className="badge">{(team.pendingMembers||[]).length}</span></div>
           {(team.pendingMembers||[]).map((req,i)=>(
             <div className="request-item" key={i}>
               <div className="avatar" style={{width:34,height:34,fontSize:13}}>{getInitials(req.name)}</div>
@@ -1253,15 +1157,16 @@ const TeamsPage = ({ user }) => {
             </div>
           </div>
           <div className="form-group" style={{marginTop:4}}>
-            <label className="form-label">Skills Needed for This Team</label>
-            <div className="tags-wrap" style={{marginTop:6}}>
+            <label className="form-label">Skills Needed</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:6}}>
               {ALL_SKILLS.map(s=>(
-                <button key={s} type="button"
-                  style={{padding:"4px 10px",borderRadius:"99px",fontSize:"12px",cursor:"pointer",margin:"2px",
+                <button key={s} type="button" onClick={()=>toggleTS(s)}
+                  style={{padding:"4px 10px",borderRadius:"99px",fontSize:12,cursor:"pointer",
                     border:newTeam.skills.includes(s)?"1.5px solid var(--accent)":"1.5px solid var(--border)",
                     background:newTeam.skills.includes(s)?"var(--accent)":"transparent",
-                    color:newTeam.skills.includes(s)?"var(--white)":"var(--text2)"}}
-                  onClick={()=>toggleTeamSkill(s)}>{s}</button>
+                    color:newTeam.skills.includes(s)?"var(--white)":"var(--text2)"}}>
+                  {s}
+                </button>
               ))}
             </div>
           </div>
@@ -1298,7 +1203,7 @@ const TeamsPage = ({ user }) => {
               <button className="btn btn-primary btn-sm" onClick={()=>setSelectedTeam(team)}>View Team</button>
               <button className="btn btn-outline btn-sm" onClick={()=>setInviteModal(team)}>✉ Invite</button>
               <button className="btn btn-ghost btn-sm" onClick={()=>setSelectedTeam(team)}>💬 Chat</button>
-              {team.createdBy===uid&&<button className="btn btn-danger btn-sm" onClick={()=>deleteTeam(team.id)}>🗑 Delete</button>}
+              {team.createdBy===uid&&<button className="btn btn-danger btn-sm" onClick={()=>deleteTeam(team.id)}>Delete</button>}
               {team.pendingRequests>0&&<span style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"var(--gold)"}}>
                 <span className="notif-dot" style={{background:"var(--gold)"}}/>{team.pendingRequests} requests</span>}
             </div>
@@ -1306,28 +1211,26 @@ const TeamsPage = ({ user }) => {
         ))}
       </div>
       {inviteModal&&(
-        <div className="modal-overlay" onClick={e=>{if(e.target.className.includes("modal-overlay")){setInviteModal(null);setInviteSearch("");setInviteResults([]);}}}>
+        <div className="modal-overlay" onClick={e=>{if(e.target.className&&e.target.className.includes("modal-overlay")){setInviteModal(null);setInviteSearch("");setInviteResults([]);}}}>
           <div className="modal">
             <div className="modal-title">Invite to {inviteModal.name}</div>
-            {inviteSent?<div className="success-banner">✓ Invite sent!</div>:(
+            {inviteSent?<div className="success-banner">Invite sent!</div>:(
               <>
                 <div className="form-group"><label className="form-label">Search by Name</label>
-                  <input className="form-input" placeholder="Type a student name…" value={inviteSearch} onChange={e=>searchInviteUsers(e.target.value)} autoFocus/></div>
+                  <input className="form-input" placeholder="Type a student name..." value={inviteSearch} onChange={e=>searchInvite(e.target.value)} autoFocus/></div>
                 {inviteResults.length>0&&(
                   <div style={{border:"1px solid var(--border)",borderRadius:"var(--r-sm)",overflow:"hidden",marginBottom:12}}>
                     {inviteResults.map((u,i)=>(
-                      <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderBottom:i<inviteResults.length-1?"1px solid var(--border)":"none",background:"var(--white)"}}>
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderBottom:i<inviteResults.length-1?"1px solid var(--border)":"none"}}>
                         <div className="avatar" style={{width:32,height:32,fontSize:12}}>{getInitials(u.name)}</div>
-                        <div style={{flex:1}}>
-                          <div style={{fontWeight:600,fontSize:13}}>{u.name}</div>
-                          <div style={{fontSize:12,color:"var(--text3)"}}>{u.major||""}{u.year?" · Year "+u.year:""}</div>
-                        </div>
+                        <div style={{flex:1}}><div style={{fontWeight:600,fontSize:13}}>{u.name}</div>
+                          <div style={{fontSize:12,color:"var(--text3)"}}>{u.major||""}{u.year?" - Year "+u.year:""}</div></div>
                         <button className="btn btn-primary btn-sm" onClick={()=>sendInvite(u)}>Invite</button>
                       </div>
                     ))}
                   </div>
                 )}
-                {inviteSearch.length>=2&&inviteResults.length===0&&<div style={{fontSize:13,color:"var(--text3)",marginBottom:12}}>No users found with that name.</div>}
+                {inviteSearch.length>=2&&inviteResults.length===0&&<div style={{fontSize:13,color:"var(--text3)",marginBottom:12}}>No users found.</div>}
               </>
             )}
             <div className="modal-footer">
@@ -1337,20 +1240,20 @@ const TeamsPage = ({ user }) => {
         </div>
       )}
       {joinModal&&(
-        <div className="modal-overlay" onClick={e=>{if(e.target.className.includes("modal-overlay"))setJoinModal(false);}}>
+        <div className="modal-overlay" onClick={e=>{if(e.target.className&&e.target.className.includes("modal-overlay"))setJoinModal(false);}}>
           <div className="modal">
             <div className="modal-title">Join a Public Team</div>
             <div className="form-group"><label className="form-label">Search Teams</label>
-              <input className="form-input" placeholder="Search by name or project…" value={joinSearch} onChange={e=>setJoinSearch(e.target.value)}/></div>
-            {publicTeams.filter(t=>!joinSearch||t.name.toLowerCase().includes(joinSearch.toLowerCase())||((t.project||"").toLowerCase().includes(joinSearch.toLowerCase()))).length===0
-              ?<div style={{color:"var(--text3)",fontSize:13,padding:"12px 0"}}>No public teams found. Create one or ask teammates to make their team public.</div>
-              :publicTeams.filter(t=>!joinSearch||t.name.toLowerCase().includes(joinSearch.toLowerCase())||((t.project||"").toLowerCase().includes(joinSearch.toLowerCase()))).map((t,i)=>(
+              <input className="form-input" placeholder="Search by name or project..." value={joinSearch} onChange={e=>setJoinSearch(e.target.value)}/></div>
+            {publicTeams.filter(t=>!joinSearch||t.name.toLowerCase().includes(joinSearch.toLowerCase())).length===0
+              ?<div style={{color:"var(--text3)",fontSize:13,padding:"12px 0"}}>No public teams found.</div>
+              :publicTeams.filter(t=>!joinSearch||t.name.toLowerCase().includes(joinSearch.toLowerCase())).map((t,i)=>(
                 <div key={i} className="request-item">
                   <div style={{flex:1}}>
                     <div style={{fontWeight:600,fontSize:14}}>{t.name}</div>
-                    <div style={{fontSize:12,color:"var(--text3)"}}>{t.project}{t.type?" · "+t.type:""}</div>
+                    <div style={{fontSize:12,color:"var(--text3)"}}>{t.project}{t.type?" - "+t.type:""}</div>
                   </div>
-                  <button className="btn btn-primary btn-sm" onClick={()=>requestJoin(t)}>Join</button>
+                  <button className="btn btn-primary btn-sm" onClick={()=>requestJoin(t)}>Request</button>
                 </div>
               ))
             }
@@ -1368,11 +1271,11 @@ const AppShell = ({ user, onLogout, setUser }) => {
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const [notifs,setNotifs]=useState([]);
   const [showNotifs,setShowNotifs]=useState(false);
-  const uid = user.user_id || user.id;
+  const uid=user.user_id||user.id;
 
   useEffect(()=>{
     if(!uid) return;
-    const unsub = firebase.firestore().collection("users").doc(uid)
+    const unsub=firebase.firestore().collection("users").doc(uid)
       .collection("notifications").limit(30)
       .onSnapshot(snap=>{
         const items=snap.docs.map(d=>({id:d.id,...d.data()}));
@@ -1382,36 +1285,27 @@ const AppShell = ({ user, onLogout, setUser }) => {
     return ()=>unsub();
   },[uid]);
 
-  const markAllRead=async()=>{
-    const unread = notifs.filter(n=>!n.read);
-    await Promise.all(unread.map(n=>
-      firebase.firestore().collection("users").doc(uid).collection("notifications").doc(n.id).update({read:true})
-    ));
-  };
-
   const acceptInvite=async(n,e)=>{
     if(e){e.stopPropagation();e.preventDefault();}
     try {
       await firebase.firestore().collection("teams").doc(n.teamId).update({
-        memberIds: firebase.firestore.FieldValue.arrayUnion(uid),
-        members: firebase.firestore.FieldValue.arrayUnion({name:user.name,initials:getInitials(user.name),uid})
+        memberIds:firebase.firestore.FieldValue.arrayUnion(uid),
+        members:firebase.firestore.FieldValue.arrayUnion({name:user.name,initials:getInitials(user.name),uid})
       });
-    } catch(err){ alert("Could not join team. Check Firestore rules cover teams subcollections.
-"+err.message); return; }
-    // Mark notification responded (needs subcollection Firestore rule)
+    } catch(err){ alert("Could not join team: "+err.message); return; }
     firebase.firestore().collection("users").doc(uid).collection("notifications").doc(n.id)
-      .update({responded:true,response:"accepted"}).catch(()=>{});
+      .update({responded:true,response:"accepted",read:true}).catch(()=>{});
     setShowNotifs(false); setPage("teams");
   };
 
   const declineInvite=async(n,e)=>{
     if(e){e.stopPropagation();e.preventDefault();}
     firebase.firestore().collection("users").doc(uid).collection("notifications").doc(n.id)
-      .update({responded:true,response:"declined"}).catch(()=>{});
+      .update({responded:true,response:"declined",read:true}).catch(()=>{});
   };
 
-  const unreadCount = notifs.filter(n=>!n.read).length;
-  const pendingCount = unreadCount;
+  const unreadCount=notifs.filter(n=>!n.read).length;
+  const pendingCount=0;
   const PAGE_TITLES={dashboard:"Dashboard",find:"Find Teammates",teams:"My Teams",profile:"My Profile"};
   return (
     <div className="app-shell">
@@ -1429,35 +1323,40 @@ const AppShell = ({ user, onLogout, setUser }) => {
           <div className="topbar-spacer"/>
           <div className="topbar-badge">{user.major||"Student"}{user.year?` · Year ${user.year}`:""}</div>
           <div style={{position:"relative"}}>
-            <button className="btn btn-ghost btn-sm" style={{fontSize:18,padding:"6px 10px",position:"relative"}}
+            <button style={{background:"none",border:"none",fontSize:20,cursor:"pointer",padding:"4px 8px",position:"relative"}}
               onClick={()=>setShowNotifs(o=>!o)}>
-              🔔{unreadCount>0&&<span style={{position:"absolute",top:-4,right:-4,background:"var(--red)",color:"white",borderRadius:"50%",fontSize:10,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{unreadCount}</span>}
+              🔔
+              {unreadCount>0&&<span style={{position:"absolute",top:0,right:0,background:"var(--red)",color:"white",borderRadius:"50%",fontSize:10,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,padding:"0 3px"}}>{unreadCount}</span>}
             </button>
             {showNotifs&&(
-              <div style={{position:"absolute",right:0,top:44,width:320,background:"var(--white)",border:"1px solid var(--border)",borderRadius:"var(--r)",boxShadow:"var(--shadow-lg)",zIndex:200,maxHeight:360,overflowY:"auto"}}>
-                <div style={{padding:"14px 16px",borderBottom:"1px solid var(--border)",fontFamily:"Syne,sans-serif",fontWeight:700,fontSize:14}}>Notifications</div>
-                {notifs.length===0?<div style={{padding:16,color:"var(--text3)",fontSize:13}}>No notifications yet</div>:
-                  notifs.map(n=>(
+              <div style={{position:"absolute",right:0,top:40,width:320,background:"var(--white)",border:"1px solid var(--border)",borderRadius:"var(--r)",boxShadow:"var(--shadow-lg)",zIndex:999,maxHeight:400,overflowY:"auto"}}>
+                <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",fontFamily:"Syne,sans-serif",fontWeight:700,fontSize:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  Notifications
+                  <button style={{background:"none",border:"none",fontSize:12,color:"var(--text3)",cursor:"pointer"}} onClick={()=>setShowNotifs(false)}>✕</button>
+                </div>
+                {notifs.length===0
+                  ?<div style={{padding:16,color:"var(--text3)",fontSize:13}}>No notifications yet</div>
+                  :notifs.map(n=>(
                     <div key={n.id} style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",background:n.read?"var(--white)":"var(--surface2)"}}>
-                      <div style={{fontSize:13,fontWeight:500}}>
-                        {n.type==="join_request"?"🙋 "+n.fromName+" wants to join "+n.teamName
-                         :n.type==="team_invite"?"✉️ "+n.fromName+" invited you to "+n.teamName
-                         :"📣 "+n.teamName}
+                      <div style={{fontSize:13,fontWeight:500,marginBottom:6}}>
+                        {n.type==="join_request"
+                          ?"🙋 "+n.fromName+" wants to join "+n.teamName
+                          :n.type==="team_invite"
+                            ?"✉️ "+n.fromName+" invited you to "+n.teamName
+                            :"📣 "+n.teamName}
                       </div>
-                      <div style={{fontSize:11,color:"var(--text3)",marginTop:3}}>{new Date(n.timestamp).toLocaleDateString()}</div>
+                      <div style={{fontSize:11,color:"var(--text3)",marginBottom:6}}>{n.timestamp?new Date(n.timestamp).toLocaleDateString():""}</div>
                       {n.type==="team_invite"&&!n.responded&&(
-                        <div style={{display:"flex",gap:6,marginTop:8}}>
-                          <button className="btn btn-sm" style={{background:"var(--green)",color:"white",padding:"4px 12px",fontSize:12}} onClick={e=>{e.stopPropagation();acceptInvite(n,e);}}>Accept</button>
-                          <button className="btn btn-sm btn-outline" style={{padding:"4px 12px",fontSize:12}} onClick={e=>{e.stopPropagation();declineInvite(n,e);}}>Decline</button>
+                        <div style={{display:"flex",gap:8}}>
+                          <button className="btn btn-sm" style={{background:"var(--green)",color:"white",padding:"4px 14px",fontSize:12}} onClick={e=>acceptInvite(n,e)}>Accept</button>
+                          <button className="btn btn-sm btn-outline" style={{padding:"4px 14px",fontSize:12}} onClick={e=>declineInvite(n,e)}>Decline</button>
                         </div>
                       )}
                       {n.type==="team_invite"&&n.responded&&(
-                        <div style={{fontSize:11,color:n.response==="accepted"?"var(--green)":"var(--text3)",marginTop:4}}>
-                          {n.response==="accepted"?"✓ Accepted":"✗ Declined"}
-                        </div>
+                        <span style={{fontSize:11,color:n.response==="accepted"?"var(--green)":"var(--text3)"}}>{n.response==="accepted"?"✓ Accepted":"✗ Declined"}</span>
                       )}
                       {n.type==="join_request"&&(
-                        <button className="btn btn-ghost btn-sm" style={{fontSize:11,padding:"2px 8px",marginTop:4}} onClick={()=>{setPage("teams");setShowNotifs(false);}}>View in My Teams →</button>
+                        <button className="btn btn-ghost btn-sm" style={{fontSize:11,padding:"2px 8px"}} onClick={()=>{setPage("teams");setShowNotifs(false);}}>View in My Teams</button>
                       )}
                     </div>
                   ))
@@ -1478,23 +1377,23 @@ const AppShell = ({ user, onLogout, setUser }) => {
 
 // ── ROOT ───────────────────────────────────────
 const App = () => {
-  const [user,setUser]=useState(undefined); // undefined=loading, null=logged out
+  const [user,setUser]=useState(undefined);
   const [authPage,setAuthPage]=useState("login");
 
   useEffect(()=>{
-    const unsub = firebase.auth().onAuthStateChanged(async firebaseUser => {
-      if(firebaseUser){
+    const unsub=firebase.auth().onAuthStateChanged(async fbUser=>{
+      if(fbUser){
         try {
-          const doc = await firebase.firestore().collection("users").doc(firebaseUser.uid).get();
-          setUser(doc.exists ? {...doc.data(),user_id:firebaseUser.uid,id:firebaseUser.uid}
-            : {user_id:firebaseUser.uid,id:firebaseUser.uid,name:firebaseUser.email,email:firebaseUser.email});
-        } catch(e){ setUser({user_id:firebaseUser.uid,id:firebaseUser.uid,name:firebaseUser.email,email:firebaseUser.email}); }
+          const doc=await firebase.firestore().collection("users").doc(fbUser.uid).get();
+          setUser(doc.exists?{...doc.data(),user_id:fbUser.uid,id:fbUser.uid}
+            :{user_id:fbUser.uid,id:fbUser.uid,name:fbUser.email,email:fbUser.email});
+        } catch(e){ setUser({user_id:fbUser.uid,id:fbUser.uid,name:fbUser.email,email:fbUser.email}); }
       } else { setUser(null); }
     });
     return ()=>unsub();
   },[]);
 
-  const handleLogout=()=>{ firebase.auth().signOut(); };
+  const handleLogout=()=>firebase.auth().signOut();
   const handleUpdate=async u=>{
     setUser(u);
     try{ await firebase.firestore().collection("users").doc(u.user_id||u.id).set(u,{merge:true}); }catch(e){}
