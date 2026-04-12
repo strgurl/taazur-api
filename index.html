@@ -388,6 +388,8 @@ const SignupPage = ({ onLogin, onSwitch }) => {
         major:form.major,college:form.college,year:form.year,profileSkills:skills,
         skillLevels:Object.fromEntries(skills.map(s=>[s,2]))};
       await firebase.firestore().collection("users").doc(uid).set(userObj);
+      // Send email verification
+      try { await cred.user.sendEmailVerification(); } catch(e){}
       try {
         const d={};
         skills.forEach(s=>{const k=SKILL_MAP[s];if(k)d[k]=Math.min(1.0,(d[k]||0)+0.7);});
@@ -780,8 +782,6 @@ const ProfilePage = ({ user, updateUser, onLogout }) => {
         <div style={{display:"flex",gap:10,flexDirection:"column",alignItems:"flex-end",position:"relative",zIndex:1}}>
           <button className="btn btn-outline" style={{color:"rgba(255,255,255,.7)",borderColor:"rgba(255,255,255,.2)",background:"rgba(255,255,255,.05)"}}
             onClick={()=>setEditMode(!editMode)}>{editMode?"Cancel":"✎ Edit Profile"}</button>
-          <button className="btn btn-danger btn-sm" onClick={onLogout}>Sign Out</button>
-          <button className="btn btn-sm" style={{background:"transparent",border:"1.5px solid var(--red)",color:"var(--red)",padding:"6px 12px",borderRadius:"var(--r-sm)",fontSize:12,cursor:"pointer",fontFamily:"DM Sans,sans-serif"}} onClick={deleteAccount}>Delete Account</button>
         </div>
       </div>
       {saved&&<div className="success-banner mb-24">✓ Profile saved successfully!</div>}
@@ -801,6 +801,10 @@ const ProfilePage = ({ user, updateUser, onLogout }) => {
               <div className="form-group"><label className="form-label">Bio</label>
                 <textarea className="form-input" rows={3} placeholder="Tell teammates about yourself…" value={form.bio} onChange={e=>set("bio",e.target.value)} style={{resize:"vertical"}}/></div>
               <button className="btn btn-accent btn-full" onClick={saveProfile}>✓ Save Profile</button>
+              <div style={{display:"flex",gap:10,marginTop:16,paddingTop:16,borderTop:"1px solid var(--border)"}}>
+                <button className="btn btn-outline btn-sm" onClick={onLogout}>↩ Sign Out</button>
+                <button className="btn btn-sm" style={{background:"transparent",border:"1.5px solid var(--red)",color:"var(--red)",padding:"6px 12px",borderRadius:"var(--r-sm)",fontSize:12,cursor:"pointer",fontFamily:"DM Sans,sans-serif"}} onClick={deleteAccount}>🗑 Delete Account</button>
+              </div>
             </>
           ):(
             <div>
@@ -1324,7 +1328,18 @@ const AppShell = ({ user, onLogout, setUser }) => {
           <div className="topbar-badge">{user.major||"Student"}{user.year?` · Year ${user.year}`:""}</div>
           <div style={{position:"relative"}}>
             <button style={{background:"none",border:"none",fontSize:20,cursor:"pointer",padding:"4px 8px",position:"relative"}}
-              onClick={()=>setShowNotifs(o=>!o)}>
+              onClick={()=>{
+                setShowNotifs(o=>{
+                  if(!o){
+                    notifs.filter(n=>!n.read).forEach(n=>{
+                      firebase.firestore().collection("users").doc(uid)
+                        .collection("notifications").doc(n.id)
+                        .update({read:true}).catch(()=>{});
+                    });
+                  }
+                  return !o;
+                });
+              }}>
               🔔
               {unreadCount>0&&<span style={{position:"absolute",top:0,right:0,background:"var(--red)",color:"white",borderRadius:"50%",fontSize:10,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,padding:"0 3px"}}>{unreadCount}</span>}
             </button>
