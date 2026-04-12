@@ -9,8 +9,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-<script>emailjs.init("mELfaNyqNpKnViLFH");</script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -316,119 +314,8 @@ const ScoreRing = ({ score, size=52 }) => {
 };
 
 // ── LOGIN PAGE ─────────────────────────────────
-// ── OTP HELPERS ────────────────────────────────
-const genCode = () => String(Math.floor(100000 + Math.random() * 900000));
-const sendOTP = async (toEmail, code) => {
-  await emailjs.send("service_0tu6q6s", "template_w3ya627", {
-    to_email: toEmail,
-    code: code,
-  });
-};
-
-// ── OTP INPUT SCREEN ────────────────────────────
-const OTPScreen = ({ email, onVerified, onBack, titleText, subText }) => {
-  const [code,setCode]=useState("");
-  const [error,setError]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [resending,setResending]=useState(false);
-  const [countdown,setCountdown]=useState(600); // 10 min
-
-  // Countdown timer
-  useEffect(()=>{
-    const t=setInterval(()=>setCountdown(c=>{if(c<=1){clearInterval(t);return 0;}return c-1;}),1000);
-    return ()=>clearInterval(t);
-  },[]);
-
-  const fmt=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
-
-  const verify=async()=>{
-    if(code.length!==6){setError("Please enter the 6-digit code.");return;}
-    setLoading(true); setError("");
-    // Check code in Firestore (stored when sent)
-    try {
-      const doc=await firebase.firestore().collection("otpcodes").doc(email.toLowerCase()).get();
-      if(!doc.exists){setError("Code not found. Please resend.");setLoading(false);return;}
-      const d=doc.data();
-      if(Date.now()>d.expiresAt){setError("Code expired. Please request a new one.");setLoading(false);return;}
-      if(d.code!==code.trim()){setError("Incorrect code. Please try again.");setLoading(false);return;}
-      // Valid — delete code and proceed
-      await firebase.firestore().collection("otpcodes").doc(email.toLowerCase()).delete();
-      onVerified();
-    } catch(e){ setError("Verification failed. Try again."); }
-    setLoading(false);
-  };
-
-  const resend=async()=>{
-    setResending(true); setError(""); setCode("");
-    try {
-      const newCode=genCode();
-      await firebase.firestore().collection("otpcodes").doc(email.toLowerCase()).set({
-        code:newCode, expiresAt:Date.now()+600000
-      });
-      await sendOTP(email, newCode);
-      setCountdown(600);
-    } catch(e){ setError("Could not resend. Try again."); }
-    setResending(false);
-  };
-
-  return (
-    <div className="auth-shell">
-      <div className="auth-left">
-        <div className="auth-logo-area">
-          <img src={LOGO_SRC} className="auth-logo-img" alt="Taazur Logo"/>
-          <div className="auth-brand">Taazur<span>.</span></div>
-        </div>
-        <p className="auth-tagline">We sent a 6-digit verification code to your email to confirm your identity.</p>
-        {["Your code expires in 10 minutes","Check your spam folder if not received","Request a new code if yours expired"].map((f,i)=>(
-          <div className="auth-feature" key={i}><span className="auth-feature-dot"/>{f}</div>
-        ))}
-      </div>
-      <div className="auth-right">
-        <div className="auth-card">
-          <div style={{textAlign:"center",marginBottom:24}}>
-            <div style={{fontSize:40,marginBottom:8}}>📨</div>
-            <div className="auth-card-title">{titleText||"Enter your code"}</div>
-            <div className="auth-card-sub">{subText||"We sent a 6-digit code to"} <b>{email}</b></div>
-          </div>
-          {error&&<div className="error-banner">{error}</div>}
-          <div className="form-group">
-            <label className="form-label">Verification Code</label>
-            <input className="form-input" placeholder="Enter 6-digit code" maxLength={6}
-              value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,""))}
-              style={{fontSize:24,letterSpacing:8,textAlign:"center",fontFamily:"Syne,sans-serif",fontWeight:700}}
-              onKeyDown={e=>e.key==="Enter"&&verify()}
-              autoFocus/>
-          </div>
-          <div style={{fontSize:12,color:"var(--text3)",textAlign:"center",marginBottom:16}}>
-            {countdown>0?<span>Code expires in <b style={{color:"var(--accent)"}}>{fmt(countdown)}</b></span>:<span style={{color:"var(--red)"}}>Code expired</span>}
-          </div>
-          <button className="btn btn-primary btn-full btn-lg" onClick={verify} disabled={loading||code.length!==6}>
-            {loading?"Verifying…":"Verify Code →"}
-          </button>
-          <div style={{textAlign:"center",marginTop:16,fontSize:13,color:"var(--text3)"}}>
-            Did not receive it?{" "}
-            <a style={{color:"var(--accent)",cursor:"pointer",fontWeight:600}} onClick={resend}>
-              {resending?"Sending…":"Resend code"}
-            </a>
-          </div>
-          {onBack&&<div style={{textAlign:"center",marginTop:12}}>
-            <a style={{color:"var(--text3)",cursor:"pointer",fontSize:13}} onClick={onBack}>← Go back</a>
-          </div>}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ── LOGIN PAGE ─────────────────────────────────
 const LoginPage = ({ onLogin, onSwitch }) => {
-  const [email,setEmail]=useState("");
-  const [password,setPassword]=useState("");
-  const [error,setError]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [step,setStep]=useState("form"); // "form" | "otp"
-  const [pendingUser,setPendingUser]=useState(null);
-
+  const [email,setEmail]=useState(""), [password,setPassword]=useState(""), [error,setError]=useState(""), [loading,setLoading]=useState(false);
   const handleSubmit = async e => {
     e.preventDefault(); setError("");
     if(!email||!password){setError("Please fill in all fields.");return;}
@@ -438,33 +325,13 @@ const LoginPage = ({ onLogin, onSwitch }) => {
       const doc = await firebase.firestore().collection("users").doc(cred.user.uid).get();
       const data = doc.exists ? {...doc.data(),user_id:cred.user.uid,id:cred.user.uid}
         : {user_id:cred.user.uid,id:cred.user.uid,name:email,email:email.trim().toLowerCase()};
-      // Sign out temporarily — must pass OTP first
-      await firebase.auth().signOut();
-      setPendingUser(data);
-      // Generate + send OTP
-      const code=genCode();
-      await firebase.firestore().collection("otpcodes").doc(email.trim().toLowerCase()).set({
-        code, expiresAt:Date.now()+600000
-      });
-      await sendOTP(email.trim(), code);
-      setStep("otp");
+      onLogin(data);
     } catch(e){
       setError(e.code==="auth/user-not-found"||e.code==="auth/wrong-password"||e.code==="auth/invalid-credential"
         ?"Invalid email or password.":"Login failed. Try again.");
     }
     setLoading(false);
   };
-
-  if(step==="otp") return (
-    <OTPScreen
-      email={email.trim()}
-      titleText="Verify your identity"
-      subText="We sent a 6-digit code to"
-      onVerified={()=>onLogin(pendingUser)}
-      onBack={()=>{setStep("form");setError("");}}
-    />
-  );
-
   return (
     <div className="auth-shell">
       <div className="auth-left">
@@ -487,7 +354,7 @@ const LoginPage = ({ onLogin, onSwitch }) => {
               <input className="form-input" type="email" placeholder="you@university.edu" value={email} onChange={e=>setEmail(e.target.value)}/></div>
             <div className="form-group"><label className="form-label">Password</label>
               <input className="form-input" type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)}/></div>
-            <button type="submit" className="btn btn-primary btn-full btn-lg" style={{marginTop:8}} disabled={loading}>{loading?"Sending code…":"Sign In →"}</button>
+            <button type="submit" className="btn btn-primary btn-full btn-lg" style={{marginTop:8}} disabled={loading}>{loading?"Signing in…":"Sign In →"}</button>
           </form>
           <div className="auth-switch">Don't have an account? <a onClick={onSwitch}>Create one</a></div>
         </div>
@@ -498,7 +365,7 @@ const LoginPage = ({ onLogin, onSwitch }) => {
 
 // ── SIGNUP PAGE ────────────────────────────────
 const SignupPage = ({ onLogin, onSwitch }) => {
-  const [step,setStep]=useState(1); // 1=info, 2=skills, 'verify'=done
+  const [step,setStep]=useState(1);
   const [form,setForm]=useState({name:"",email:"",password:"",major:"",college:"",year:""});
   const [skills,setSkills]=useState([]);
   const [loading,setLoading]=useState(false);
@@ -521,36 +388,21 @@ const SignupPage = ({ onLogin, onSwitch }) => {
         major:form.major,college:form.college,year:form.year,profileSkills:skills,
         skillLevels:Object.fromEntries(skills.map(s=>[s,2]))};
       await firebase.firestore().collection("users").doc(uid).set(userObj);
-      // Register skills with backend (best effort)
+      // Send email verification
+      try { await cred.user.sendEmailVerification(); } catch(e){}
       try {
         const d={};
         skills.forEach(s=>{const k=SKILL_MAP[s];if(k)d[k]=Math.min(1.0,(d[k]||0)+0.7);});
         await fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({user_id:uid,name:userObj.name,major:form.major,year:form.year,skills:d,needs:[]})});
       } catch(e){}
-      // Sign out and send OTP to verify identity
-      await firebase.auth().signOut();
-      const code=genCode();
-      await firebase.firestore().collection("otpcodes").doc(form.email.trim().toLowerCase()).set({
-        code, expiresAt:Date.now()+600000
-      });
-      await sendOTP(form.email.trim(), code);
-      setStep("otp");
+      onLogin(userObj);
     } catch(e){
       setError(e.code==="auth/email-already-in-use"?"Email already registered."
         :e.code==="auth/weak-password"?"Password too short.":"Signup failed. Try again.");
     }
     setLoading(false);
   };
-  if(step==="otp") return (
-    <OTPScreen
-      email={form.email.trim()}
-      titleText="Verify your email"
-      subText="We sent a 6-digit code to"
-      onVerified={()=>onSwitch()}
-      onBack={()=>{setStep(2);setError("");}}
-    />
-  );
   if(step===1) return (
     <div className="auth-shell">
       <div className="auth-left">
