@@ -591,31 +591,44 @@ const FindPage = ({ user }) => {
   const toggle=(skill,arr,setArr)=>setArr(a=>a.includes(skill)?a.filter(s=>s!==skill):[...a,skill]);
   const myId = user.user_id||user.id;
 
-  const findMatches = async () => {
-    if(mySkills.length===0) return;
-    setLoading(true); setResults(null);
-    try {
-      const snap = await firebase.firestore().collection("users").get();
-      const needed = new Set(neededSkills);
-      const scored = snap.docs.map(d=>d.data())
-        .filter(u=>(u.user_id||u.id)!==myId && u.name)
-        .map(u=>{
-          const their = new Set(u.profileSkills||[]);
-          const mine = new Set(mySkills);
-          const cov = needed.size>0 ? [...needed].filter(s=>their.has(s)).length/needed.size : 0;
-          const all = new Set([...mine,...their]);
-          const ov = all.size>0 ? [...mine].filter(s=>their.has(s)).length/all.size : 0;
-          const score = Math.min(100,Math.max(10,Math.round((needed.size>0?cov*0.7+(1-ov)*0.3:(1-ov))*100)));
-          const prov = (u.profileSkills||[]).filter(s=>needed.has(s));
-          return {id:u.user_id||u.id,name:u.name,major:u.major||"",
-            year:u.year?"Year "+u.year:"",score,skills:u.profileSkills||[],
-            explanation:prov.length>0?"Has: "+prov.slice(0,3).join(", "):"Complementary skills",
-            available:true,fullProfile:u};
-        })
-        .sort((a,b)=>b.score-a.score);
-      setResults(scored);
-    } catch(e){ setResults([]); }
-    setLoading(false);
+const findMatches = async () => {
+  if(mySkills.length === 0) return;
+  setLoading(true); setResults(null); setError(null);
+  try {
+    // بناء skills object بالصيغة اللي يفهمها الـ model
+    const skillsObj = {};
+    mySkills.forEach(s => { skillsObj[s] = 0.8; });
+
+    // استدعاء الـ GBR model الفعلي
+    const res = await fetch(API + "/api/recommend", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        user_id: user.user_id || user.id,
+        k: 10
+      })
+    });
+    const data = await res.json();
+    // تحويل النتائج لنفس الصيغة
+    const scored = data.matches.map(m => ({
+      id: m.user_id,
+      name: m.name,
+      major: m.major,
+      year: m.year ? "Year " + m.year : "",
+      score: m.score_percent,
+      skills: Object.keys(m.skills || {}),
+      explanation: m.explanation?.provides_to_you?.length > 0
+        ? "Covers your needed skills: " + m.explanation.provides_to_you.map(x=>x.skill).join(", ")
+        : "Complementary skill profile",
+      available: true,
+      fullProfile: m
+    }));
+    setResults(scored);
+  } catch(e) {
+    setError("Could not load matches. Please try again.");
+  }
+  setLoading(false);
+  
   };
   return (
     <div className="page page-enter">
