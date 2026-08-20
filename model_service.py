@@ -118,25 +118,24 @@ def _compute_features(E_i, N_i, E_j, N_j) -> list:
         float(abs(np.sum(E_i) - np.sum(E_j))),                 # skill_balance
     ]
 
-def _as_percent(score: float, N_i, N_j) -> int:
+def _coverage(N_needer, E_provider) -> dict:
     """
-    Present the model's score as a percentage.
+    How many of one side's declared needs the other side can actually cover.
 
-    The target it was trained on is `comp_i_to_j + comp_j_to_i`, i.e. the sum
-    over each side's needed skills of how strong the other side is in them.
-    Each declared need can contribute at most 1.0, so the ceiling for a pair is
-    the number of needs the two of them declared between them. Dividing by that
-    ceiling makes the number mean something concrete: how much of what the two
-    of them need is actually covered.
-
-    This is presentation only. Ranking is done on the raw score, untouched.
+    This is counted directly from the vectors — it is not a model output. A
+    need counts as covered when the other person has any level in that skill.
+    Because the denominator is the number of needs that side declared, the
+    percentage is bounded, exact, and checkable against the skills on screen.
     """
-    ceiling = float(np.sum(N_i) + np.sum(N_j))
-    if ceiling <= 0:
-        # Nobody declared needs, so coverage is undefined. Fall back to the
-        # model's practical operating range rather than showing a false 0.
-        ceiling = 2.0
-    return int(min(100, max(0, round(score / ceiling * 100))))
+    total = int(np.sum(N_needer))
+    if total == 0:
+        return {"count": 0, "total": 0, "percent": None}
+    covered = int(np.sum((N_needer * E_provider) > 0))
+    return {
+        "count": covered,
+        "total": total,
+        "percent": int(round(covered / total * 100)),
+    }
 
 
 def _build_explanation(E_i, N_i, E_j, N_j) -> dict:
@@ -284,13 +283,20 @@ def get_recommendations(requester_id: str = None,
         features = _compute_features(E_me, N_me, E_j, N_j)
         score    = _predict(features)
 
+        # Exact, checkable counts — reported alongside the model's ranking
+        # rather than derived from it.
+        they_cover_you = _coverage(N_me, E_j)
+        you_cover_them = _coverage(N_j, E_me)
+
         results.append({
             "user_id":         uid,
             "name":            name,
             "major":           major,
             "year":            year,
             "score_raw":       score,
-            "score_percent":   _as_percent(score, N_me, N_j),
+            "they_cover_you":  they_cover_you,
+            "you_cover_them":  you_cover_them,
+            "mutual":          they_cover_you["count"] > 0 and you_cover_them["count"] > 0,
             "dominant_skill":  SKILL_NAMES[int(np.argmax(E_j))],
             "skills":          json.loads(s_json),
             "needs":           json.loads(n_json),
@@ -299,8 +305,24 @@ def get_recommendations(requester_id: str = None,
             "explanation":     _build_explanation(E_me, N_me, E_j, N_j),
         })
 
-    # Sort by score descending, take top-k
-    results.sort(key=lambda x: x["score_raw"], reverse=True)
+    # Ordering.
+    #
+    # The visitor asked for specific skills, so the first question any ranking
+    # has to answer is "how much of that did this person cover". Ranking purely
+    # on the model's output puts a 50%-coverage candidate above a 100% one
+    # whenever the former also needs something the visitor has — internally
+    # sound, but it reads as broken next to the coverage shown on each card.
+    #
+    # So: coverage first, then the model's mutual-complementarity score to
+    # order everyone who covers the same amount. That is exactly where
+    # complementarity should decide, and the list stays legible.
+    #
+    # With no declared needs there is nothing to cover, so the model orders
+    # the whole list on its own.
+    if np.sum(N_me) > 0:
+        results.sort(key=lambda x: (x["they_cover_you"]["percent"], x["score_raw"]), reverse=True)
+    else:
+        results.sort(key=lambda x: x["score_raw"], reverse=True)
     top_k = results[:k]
 
     # Clean up score_raw before sending to frontend

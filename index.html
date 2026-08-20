@@ -282,6 +282,28 @@ const LOGO_SRC = document.getElementById('logo-data').textContent.trim();
 // ── MOCK DATA ──────────────────────────────────
 const ALL_SKILLS = ["Python","JavaScript","React","Node.js","Machine Learning","Data Analysis","UI/UX Design","Figma","Deep Learning","Backend Dev","Mobile Dev","SQL","DevOps","Cybersecurity","NLP","Computer Vision","Flutter","Swift","Project Management","Research"];
 const SKILL_LEVEL_LABELS = { 1:"Beginner", 2:"Intermediate", 3:"Advanced" };
+
+// The model and the database speak in canonical keys. Nothing user-facing
+// should. This is the single place those keys become readable labels — the
+// API, storage and ML layers keep using the keys unchanged.
+const SKILL_LABELS = {
+  programming:   "Programming",
+  uiux:          "UI/UX Design",
+  graphic:       "Graphic Design",
+  content:       "Content Writing",
+  marketing:     "Marketing",
+  project_mgmt:  "Project Management",
+  data_analysis: "Data Analysis",
+  ai_ml:         "AI & Machine Learning",
+  research:      "Research",
+  presentation:  "Presentation",
+  video:         "Video Production",
+};
+// Falls back to a tidied version of the key so a new dimension can never
+// surface as raw snake_case.
+const skillLabel = key => SKILL_LABELS[key]
+  || String(key||"").replace(/_/g," ").replace(/\b\w/g, c=>c.toUpperCase());
+const skillList = keys => (keys||[]).map(skillLabel).join(" · ");
 // Same origin when the page is served by the API itself (local dev, or the
 // deployed app), so running locally never talks to production by accident.
 const API = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
@@ -305,6 +327,16 @@ const getInitials = name => String(name || "?").trim().split(/\s+/)
   .filter(Boolean).map(w=>w[0]).slice(0,2).join("").toUpperCase() || "?";
 
 const ScoreRing = ({ score, size=52 }) => {
+  // Null when the visitor declared no needed skills — there is nothing to
+  // measure coverage against, so show a dash rather than a fake 0%.
+  if(score === null || score === undefined) return (
+    <div style={{position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center",width:size,height:size}}>
+      <svg width={size} height={size}><circle cx={size/2} cy={size/2} r={(size-6)/2} fill="none" stroke="var(--surface2)" strokeWidth="4"/></svg>
+      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <span style={{fontFamily:"Syne,sans-serif",fontWeight:800,fontSize:size>50?14:11,color:"var(--text3)"}}>—</span>
+      </div>
+    </div>
+  );
   const r=(size-6)/2, circ=2*Math.PI*r, fill=(score/100)*circ, color=getScoreColor(score);
   return (
     <div style={{position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center",width:size,height:size}}>
@@ -314,7 +346,13 @@ const ScoreRing = ({ score, size=52 }) => {
           strokeDasharray={`${fill} ${circ}`} strokeLinecap="round"/>
       </svg>
       <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-        <span style={{fontFamily:"Syne,sans-serif",fontWeight:800,fontSize:size>50?14:11,color}}>{score}%</span>
+        {/* 100% is three digits plus a sign; at the base size it overflows the
+            ring and reads as clipped glyphs. Step the type down for it. */}
+        <span style={{
+          fontFamily:"Syne,sans-serif", fontWeight:800, color,
+          fontSize: (size>50 ? 14 : 11) * (score>=100 ? 0.78 : 1),
+          letterSpacing:"-0.02em", lineHeight:1, whiteSpace:"nowrap"
+        }}>{score}%</span>
       </div>
     </div>
   );
@@ -688,11 +726,16 @@ const FindPage = ({ user }) => {
         name: m.name,
         major: m.major,
         year: m.year ? "Year " + m.year : "",
-        score: m.score_percent,
+        // The ring shows how much of what YOU asked for this person covers.
+        // It is a plain count, not a model output, so it always agrees with
+        // the skills listed underneath it.
+        score: m.they_cover_you?.percent,
+        coverage: m.they_cover_you || {count:0,total:0,percent:null},
+        reverse: m.you_cover_them || {count:0,total:0,percent:null},
+        mutual: !!m.mutual,
+        coveredSkills: (m.explanation?.provides_to_you || []).map(x => x.skill),
+        youBring: (m.explanation?.you_provide || []).map(x => x.skill),
         skills: Object.keys(m.skills || {}),
-        explanation: m.explanation?.provides_to_you?.length > 0
-          ? "Covers what you need: " + m.explanation.provides_to_you.map(x=>x.skill).join(", ")
-          : "Complementary skill profile",
         available: true,
         fullProfile: m
       }));
@@ -722,7 +765,15 @@ const FindPage = ({ user }) => {
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center",marginTop:8}}>
             <button className="btn btn-accent btn-lg" onClick={findMatches} disabled={loading||mySkills.length===0}>{loading?"Finding matches…":"⚡ Find My Matches"}</button>
-            {mySkills.length>0&&<span style={{fontSize:13,color:"rgba(255,255,255,.4)"}}>{mySkills.length} skills · {neededSkills.length} needed</span>}
+            {mySkills.length>0&&(()=>{
+              // Several UI skills map onto the same underlying area (Figma and
+              // UI/UX Design are both UI/UX). Count areas, so this agrees with
+              // the "covers N of M" on the result cards.
+              const areas=a=>new Set(a.map(s=>SKILL_MAP[s]||s)).size;
+              return <span style={{fontSize:13,color:"rgba(255,255,255,.4)"}}>
+                {areas(mySkills)} skill area{areas(mySkills)===1?"":"s"} · {areas(neededSkills)} needed
+              </span>;
+            })()}
           </div>
         </div>
       </div>
@@ -738,12 +789,17 @@ const FindPage = ({ user }) => {
       {results&&results.length>0&&!loading&&(
         <>
           <div className="results-meta">
-            <div className="results-count">Found <strong>{results.length} matches</strong> — sorted by compatibility</div>
-            <div style={{display:"flex",gap:12,fontSize:12,color:"var(--text3)"}}><span>🟢 High ≥80%</span><span>🟡 Med 60–79%</span><span>⚪ Low &lt;60%</span></div>
+            <div className="results-count">
+              Found <strong>{results.length} matches</strong> — ranked by overall fit, counting what each of you brings the other
+            </div>
+            <div style={{fontSize:12,color:"var(--text3)"}}>The ring shows how much of what you need each person covers</div>
           </div>
           <div className="match-grid">
-            {[...results].sort((a,b)=>b.score-a.score).map(match=>{
-              const tier=getScoreClass(match.score), invited=invitedIds.includes(match.id);
+            {/* Order comes from the API, which ranks on the model's output.
+                Re-sorting here by the coverage ring would silently override
+                that ranking. */}
+            {results.map(match=>{
+              const tier=getScoreClass(match.score||0), invited=invitedIds.includes(match.id);
               return (
                 <div key={match.id} className={`match-card match-${tier}`}>
                   <div className="match-header">
@@ -757,8 +813,29 @@ const FindPage = ({ user }) => {
                     </div>
                     <ScoreRing score={match.score} size={56}/>
                   </div>
-                  <div className="match-explanation">💡 {match.explanation}</div>
-                  <div className="tags-wrap mb-16">{match.skills.map(s=><span key={s} className="tag tag-accent">{s}</span>)}</div>
+                  <div className="match-explanation">
+                    {match.coverage.total>0 ? (
+                      <>
+                        <div style={{fontWeight:600,color:"var(--text)"}}>
+                          Covers {match.coverage.count} of {match.coverage.total} skill{match.coverage.total>1?"s":""} you need
+                        </div>
+                        {match.coveredSkills.length>0 &&
+                          <div style={{marginTop:2}}>{skillList(match.coveredSkills)}</div>}
+                        {match.coverage.count===0 &&
+                          <div style={{marginTop:2}}>None of the areas you selected.</div>}
+                      </>
+                    ) : (
+                      <div>Pick some skills under “Skills I Need” to see what each person covers.</div>
+                    )}
+                    <div style={{marginTop:6,fontSize:12,color:"var(--text3)"}}>
+                      {match.mutual
+                        ? <>Mutual · you cover {match.reverse.count} of {match.reverse.total} they need{match.youBring.length>0 && <> ({skillList(match.youBring)})</>}</>
+                        : (match.reverse.total===0
+                            ? "They haven’t listed skills they need yet"
+                            : `One-way · you cover none of the ${match.reverse.total} they need`)}
+                    </div>
+                  </div>
+                  <div className="tags-wrap mb-16">{match.skills.map(s=><span key={s} className="tag tag-accent">{skillLabel(s)}</span>)}</div>
                   <div className="match-footer">
                     <div style={{fontSize:12,color:"var(--text3)"}}>{match.year}</div>
                     <div style={{display:"flex",gap:6}}>
@@ -825,11 +902,13 @@ const FindPage = ({ user }) => {
                 // The match object comes from the recommendation API, which
                 // returns the model's skill dimensions in `skills`, not the
                 // UI-facing `profileSkills` list.
-                const list = (profileModal.profileSkills||[]).length
+                // profileSkills are already UI-level names; the API's `skills`
+                // are canonical keys and need the label map.
+                const named = (profileModal.profileSkills||[]).length
                   ? profileModal.profileSkills
-                  : Object.keys(profileModal.skills||{});
-                return list.length
-                  ? list.map(s=><span key={s} className="tag tag-accent">{s}</span>)
+                  : Object.keys(profileModal.skills||{}).map(skillLabel);
+                return named.length
+                  ? named.map(s=><span key={s} className="tag tag-accent">{s}</span>)
                   : <span style={{fontSize:13,color:"var(--text3)"}}>No skills listed</span>;
               })()}
             </div>

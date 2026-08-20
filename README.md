@@ -30,11 +30,24 @@ For each possible pair, the service computes six features:
 | `mutual_coverage` | mean of the two coverage terms |
 | `skill_balance` | difference in total skill volume |
 
-A `GradientBoostingRegressor` ranks pairs on those features. It was trained toward a compatibility score defined for the project (the sum of the two directional coverage terms), so it is best described as a **learned ranking layer over a designed target**, not a model that discovered compatibility on its own.
+A `GradientBoostingRegressor` scores pairs on those features. It was trained toward a compatibility target defined for the project — the sum of the two directional coverage terms — so it is best described as a **learned ranking layer over a designed target**, not a model that discovered compatibility on its own.
 
-The percentage shown in the UI is that score divided by the pair's coverage ceiling — the number of needs the two people declared between them. It reads as "how much of what you both need is covered". Ranking is done on the raw model output.
+### What the model does and does not do
 
-The service also returns a structured explanation per match (which skills they bring you, which you bring them), so a recommendation is never just a number.
+The model's output is an unbounded regression estimate, not a probability or a confidence. In practice it tracks `coverage_i_j + coverage_j_i` closely (r ≈ 0.93) with a natural range of roughly 0–2. **It is used for ordering, never shown as a percentage.**
+
+### What the interface shows
+
+Two things, both counted directly from the skill vectors so they can be checked against what is on screen:
+
+- **Need coverage** — "Covers 2 of 2 skills you need", and the ring percentage. The denominator is the number of skill areas *you* selected, so covering everything you asked for is always 100%, however many needs you declare and whatever the other person needs.
+- **Mutual coverage** — "you cover 2 of 2 they need", or "One-way" when you cover none of theirs.
+
+Results are ordered by need coverage first, then by the model's score among people who cover the same amount. That is where complementarity decides: between two people who both cover everything you asked for, the one who also benefits from your skills ranks higher. Ordering purely on the model put a 50%-coverage candidate above a 100% one whenever the former also needed something you had, which is defensible internally but reads as broken next to the coverage on each card.
+
+Several UI skills map onto one underlying area (Figma and UI/UX Design are both `uiux`), so counts are in terms of skill areas, and the search form says so.
+
+The service also returns a structured explanation per match — which skills they bring you and at what level, and which you bring them — so a recommendation is never just a number.
 
 ## Stack
 
@@ -61,7 +74,7 @@ Then open http://127.0.0.1:5000. The page is served by Flask, and the frontend p
 | `GET` | `/api/health` | Service status and loaded skill dimensions |
 | `GET` | `/api/skills` | The 11 skill dimensions |
 | `POST` | `/api/register` | Create or update a profile in the local cache |
-| `POST` | `/api/recommend` | Ranked matches. Accepts `skills` + `needs` + `candidates`, or a `user_id` |
+| `POST` | `/api/recommend` | Ranked matches with `they_cover_you`, `you_cover_them` and an explanation. Accepts `skills` + `needs` + `candidates`, or a `user_id` |
 | `GET` | `/api/users` | Debug listing. Disabled unless `EXPOSE_USERS=1` |
 
 Example:
