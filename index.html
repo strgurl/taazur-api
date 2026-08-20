@@ -6,8 +6,8 @@
 <title>Taazur – AI Team Formation</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -282,7 +282,11 @@ const LOGO_SRC = document.getElementById('logo-data').textContent.trim();
 // ── MOCK DATA ──────────────────────────────────
 const ALL_SKILLS = ["Python","JavaScript","React","Node.js","Machine Learning","Data Analysis","UI/UX Design","Figma","Deep Learning","Backend Dev","Mobile Dev","SQL","DevOps","Cybersecurity","NLP","Computer Vision","Flutter","Swift","Project Management","Research"];
 const SKILL_LEVEL_LABELS = { 1:"Beginner", 2:"Intermediate", 3:"Advanced" };
-const API = "https://taazur-api.onrender.com";
+// Same origin when the page is served by the API itself (local dev, or the
+// deployed app), so running locally never talks to production by accident.
+const API = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
+  ? location.origin
+  : (location.origin.includes("onrender.com") ? location.origin : "https://taazur-api.onrender.com");
 const SKILL_MAP = {
   "Python":"programming","JavaScript":"programming","React":"uiux","Node.js":"programming",
   "Machine Learning":"ai_ml","Data Analysis":"data_analysis","UI/UX Design":"uiux",
@@ -295,7 +299,10 @@ const SKILL_MAP = {
 // ── UTILITIES ─────────────────────────────────
 const getScoreClass = s => s>=80?"high":s>=60?"medium":"low";
 const getScoreColor = s => s>=80?"#10b981":s>=60?"#f59e0b":"#8b8d9e";
-const getInitials   = name => name.split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
+// Defensive: a user document without a name used to throw here, and because
+// this runs inside render it took the whole app down with it.
+const getInitials = name => String(name || "?").trim().split(/\s+/)
+  .filter(Boolean).map(w=>w[0]).slice(0,2).join("").toUpperCase() || "?";
 
 const ScoreRing = ({ score, size=52 }) => {
   const r=(size-6)/2, circ=2*Math.PI*r, fill=(score/100)*circ, color=getScoreColor(score);
@@ -537,7 +544,7 @@ const DashboardPage = ({ user, setPage }) => {
       <div className="welcome-banner">
         <div className="welcome-text">
           <div className="welcome-greeting">Good day,</div>
-          <div className="welcome-name">Hello, <span>{user.name.split(" ")[0]}</span> 👋</div>
+          <div className="welcome-name">Hello, <span>{String(user.name||"there").split(" ")[0]}</span> 👋</div>
           <div className="welcome-sub">Find your perfect team using Taazur AI‑powered matching</div>
         </div>
         <div className="welcome-actions">
@@ -586,51 +593,116 @@ const FindPage = ({ user }) => {
   const [neededSkills,setNeededSkills]=useState([]);
   const [results,setResults]=useState(null);
   const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
   const [invitedIds,setInvitedIds]=useState([]);
   const [profileModal,setProfileModal]=useState(null);
+  const [myTeams,setMyTeams]=useState([]);
+  const [inviteTarget,setInviteTarget]=useState(null);
   const toggle=(skill,arr,setArr)=>setArr(a=>a.includes(skill)?a.filter(s=>s!==skill):[...a,skill]);
   const myId = user.user_id||user.id;
 
-const findMatches = async () => {
-  if(mySkills.length === 0) return;
-  setLoading(true); setResults(null); setError(null);
-  try {
-    // بناء skills object بالصيغة اللي يفهمها الـ model
-    const skillsObj = {};
-    mySkills.forEach(s => { skillsObj[s] = 0.8; });
+  // Teams this user can invite someone into. Same notification the Teams page
+  // sends, so an invite from here behaves identically to one sent from there.
+  useEffect(()=>{
+    if(!myId) return;
+    firebase.firestore().collection("teams").where("memberIds","array-contains",myId)
+      .get().then(snap=>setMyTeams(snap.docs.map(d=>({...d.data(),id:d.id})))).catch(()=>{});
+  },[myId]);
 
-    // استدعاء الـ GBR model الفعلي
-    const res = await fetch(API + "/api/recommend", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        user_id: user.user_id || user.id,
-        k: 10
-      })
-    });
-    const data = await res.json();
-    // تحويل النتائج لنفس الصيغة
-    const scored = data.matches.map(m => ({
-      id: m.user_id,
-      name: m.name,
-      major: m.major,
-      year: m.year ? "Year " + m.year : "",
-      score: m.score_percent,
-      skills: Object.keys(m.skills || {}),
-      explanation: m.explanation?.provides_to_you?.length > 0
-        ? "Covers your needed skills: " + m.explanation.provides_to_you.map(x=>x.skill).join(", ")
-        : "Complementary skill profile",
-      available: true,
-      fullProfile: m
-    }));
-    setResults(scored);
-  } catch(e) {
-    setError("Could not load matches. Please try again.");
-  }
-  setLoading(false);
-};
-  
+  const inviteToTeam = async (team) => {
+    if(!inviteTarget) return;
+    try {
+      await firebase.firestore().collection("users").doc(inviteTarget.id)
+        .collection("notifications").add({
+          type:"team_invite", fromName:user.name, fromUid:myId,
+          teamId:team.id, teamName:team.name,
+          timestamp:Date.now(), read:false
+        });
+      setInvitedIds(ids=>[...ids, inviteTarget.id]);
+      setInviteTarget(null);
+    } catch(e) {
+      alert("Could not send the invite. Please try again.");
+    }
   };
+
+  const findMatches = async () => {
+    if(mySkills.length === 0) return;
+    setLoading(true); setResults(null); setError(null);
+    try {
+      // Skill levels on the 0–3 scale the model's scaler was fitted on.
+      const skillsObj = {};
+      mySkills.forEach(s => {
+        const k = SKILL_MAP[s] || s;
+        skillsObj[k] = Math.max(skillsObj[k] || 0, (user.skillLevels && user.skillLevels[s]) || 2);
+      });
+      const needsList = neededSkills.map(s => SKILL_MAP[s] || s);
+
+      // The candidate pool comes from Firestore, so recommendations do not
+      // depend on the API's local cache still being warm.
+      let candidates = [];
+      try {
+        const snap = await firebase.firestore().collection("users").get();
+        candidates = snap.docs
+          .map(d => d.data())
+          .filter(u => (u.user_id || u.id) !== myId)
+          .map(u => {
+            const s = {};
+            Object.entries(u.skillLevels || {}).forEach(([skill, val]) => {
+              const k = SKILL_MAP[skill] || skill;
+              s[k] = Math.max(s[k] || 0, Number(val) || 0);
+            });
+            return {
+              user_id: u.user_id || u.id,
+              name: u.name || "Student",
+              major: u.major || "",
+              year: u.year || "",
+              skills: s,
+              needs: (u.neededSkills || []).map(x => SKILL_MAP[x] || x),
+            };
+          })
+          .filter(u => u.user_id && Object.keys(u.skills).length > 0);
+      } catch(e) { /* fall back to whatever the API already has */ }
+
+      const res = await fetch(API + "/api/recommend", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          skills: skillsObj,
+          needs: needsList,
+          candidates,
+          k: 10
+        })
+      });
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+
+      // Remember what this user is looking for, so they can be matched
+      // complementarily when someone else searches.
+      try {
+        if(myId) await firebase.firestore().collection("users").doc(myId)
+          .set({ neededSkills, profileSkills: mySkills }, { merge: true });
+      } catch(e) { /* non-blocking */ }
+
+      const scored = (data.matches || []).map(m => ({
+        id: m.user_id,
+        name: m.name,
+        major: m.major,
+        year: m.year ? "Year " + m.year : "",
+        score: m.score_percent,
+        skills: Object.keys(m.skills || {}),
+        explanation: m.explanation?.provides_to_you?.length > 0
+          ? "Covers what you need: " + m.explanation.provides_to_you.map(x=>x.skill).join(", ")
+          : "Complementary skill profile",
+        available: true,
+        fullProfile: m
+      }));
+      setResults(scored);
+    } catch(e) {
+      setError("Could not load matches. Please try again.");
+    }
+    setLoading(false);
+  };
+
   return (
     <div className="page page-enter">
       <div className="section-header"><div className="section-title">Find Teammates</div><div className="section-sub">Select your skills and what you need — Taazur AI finds your best matches</div></div>
@@ -655,14 +727,22 @@ const findMatches = async () => {
         </div>
       </div>
       {loading&&<div className="loading-state"><div className="spinner"/><div className="loading-text">Analyzing compatibility with AI model…</div><div style={{fontSize:12,color:"var(--text3)"}}>Comparing skill vectors and complementarity scores</div></div>}
-      {results&&!loading&&(
+      {error&&!loading&&(
+        <div className="empty-state">
+          <div className="empty-icon">⚠️</div>
+          <div className="empty-title">{error}</div>
+          <div className="empty-sub">The matching service may be waking up. Give it a moment and try again.</div>
+          <button className="btn btn-outline btn-sm" style={{marginTop:14}} onClick={findMatches}>Retry</button>
+        </div>
+      )}
+      {results&&results.length>0&&!loading&&(
         <>
           <div className="results-meta">
             <div className="results-count">Found <strong>{results.length} matches</strong> — sorted by compatibility</div>
             <div style={{display:"flex",gap:12,fontSize:12,color:"var(--text3)"}}><span>🟢 High ≥80%</span><span>🟡 Med 60–79%</span><span>⚪ Low &lt;60%</span></div>
           </div>
           <div className="match-grid">
-            {results.sort((a,b)=>b.score-a.score).map(match=>{
+            {[...results].sort((a,b)=>b.score-a.score).map(match=>{
               const tier=getScoreClass(match.score), invited=invitedIds.includes(match.id);
               return (
                 <div key={match.id} className={`match-card match-${tier}`}>
@@ -684,7 +764,7 @@ const findMatches = async () => {
                     <div style={{display:"flex",gap:6}}>
                       {match.fullProfile&&<button className="btn btn-outline btn-sm" onClick={()=>setProfileModal(match.fullProfile)}>View Profile</button>}
                       {invited?<div className="invite-sent">Invited</div>:
-                        <button className="btn btn-primary btn-sm" onClick={()=>setInvitedIds(ids=>[...ids,match.id])}>Invite +</button>}
+                        <button className="btn btn-primary btn-sm" onClick={()=>setInviteTarget(match)}>Invite +</button>}
                     </div>
                   </div>
                 </div>
@@ -693,11 +773,39 @@ const findMatches = async () => {
           </div>
         </>
       )}
-      {results&&results.length===0&&!loading&&(
+      {results&&results.length===0&&!loading&&!error&&(
         <div className="empty-state"><div className="empty-icon">👥</div><div className="empty-title">No matches yet</div><div className="empty-sub">Be the first! Ask your teammates to register their profiles on Taazur, then search again.</div></div>
       )}
-      {!results&&!loading&&(
+      {!results&&!loading&&!error&&(
         <div className="empty-state"><div className="empty-icon">◎</div><div className="empty-title">Ready to find your team?</div><div className="empty-sub">Select your skills above and click "Find My Matches"</div></div>
+      )}
+      {inviteTarget&&(
+        <div className="modal-overlay" onClick={e=>{if(e.target.className&&e.target.className.includes("modal-overlay"))setInviteTarget(null);}}>
+          <div className="modal">
+            <div className="modal-title">Invite {inviteTarget.name}</div>
+            {myTeams.length>0?(
+              <>
+                <div style={{fontSize:13,color:"var(--text3)",marginBottom:12}}>Choose which team to invite them to.</div>
+                <div style={{border:"1px solid var(--border)",borderRadius:10,overflow:"hidden"}}>
+                  {myTeams.map((t,i)=>(
+                    <div key={t.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderBottom:i<myTeams.length-1?"1px solid var(--border)":"none"}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:14,fontWeight:600}}>{t.name}</div>
+                        {t.project&&<div style={{fontSize:12,color:"var(--text3)"}}>{t.project}</div>}
+                      </div>
+                      <button className="btn btn-primary btn-sm" onClick={()=>inviteToTeam(t)}>Invite</button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ):(
+              <div style={{fontSize:13,color:"var(--text3)"}}>You are not in a team yet. Create one from My Teams first, then invite people to it.</div>
+            )}
+            <div className="modal-footer" style={{marginTop:16}}>
+              <button className="btn btn-ghost" onClick={()=>setInviteTarget(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
       )}
       {profileModal&&(
         <div className="modal-overlay" onClick={e=>{if(e.target.className&&e.target.className.includes("modal-overlay"))setProfileModal(null);}}>
@@ -713,9 +821,17 @@ const findMatches = async () => {
             {profileModal.bio&&<p style={{fontSize:14,color:"var(--text2)",marginBottom:16}}>{profileModal.bio}</p>}
             <div style={{fontSize:12,fontWeight:600,textTransform:"uppercase",color:"var(--text3)",marginBottom:8}}>Skills</div>
             <div className="tags-wrap">
-              {(profileModal.profileSkills||[]).length>0
-                ?(profileModal.profileSkills||[]).map(s=><span key={s} className="tag tag-accent">{s}</span>)
-                :<span style={{fontSize:13,color:"var(--text3)"}}>No skills listed</span>}
+              {(() => {
+                // The match object comes from the recommendation API, which
+                // returns the model's skill dimensions in `skills`, not the
+                // UI-facing `profileSkills` list.
+                const list = (profileModal.profileSkills||[]).length
+                  ? profileModal.profileSkills
+                  : Object.keys(profileModal.skills||{});
+                return list.length
+                  ? list.map(s=><span key={s} className="tag tag-accent">{s}</span>)
+                  : <span style={{fontSize:13,color:"var(--text3)"}}>No skills listed</span>;
+              })()}
             </div>
             <div className="modal-footer" style={{marginTop:16}}>
               <button className="btn btn-ghost" onClick={()=>setProfileModal(null)}>Close</button>
@@ -1044,7 +1160,12 @@ const TeamsPage = ({ user }) => {
     try {
       const ref=await firebase.firestore().collection("teams").add(td);
       setTeams(t=>[...t,{...td,id:ref.id}]);
-    } catch(e){ setTeams(t=>[...t,{...td,id:String(Date.now())}]); }
+    } catch(e){
+      // Previously this added the team to local state anyway, so it looked
+      // created and then vanished on refresh. Better to say it failed.
+      alert("Could not create the team. Check your connection and try again.");
+      return;
+    }
     setNewTeam({name:"",project:"",type:"",privacy:"Public",skills:[]}); setShowCreate(false);
   };
 

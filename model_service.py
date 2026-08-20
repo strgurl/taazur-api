@@ -15,6 +15,7 @@ import sqlite3
 import json
 import joblib
 import numpy as np
+import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 import os
 
@@ -34,7 +35,20 @@ SKILL_NAMES = [
 # ── Load model once at import time ───────────────────────────
 model        = joblib.load(MODEL_PATH)
 skill_scaler = joblib.load(SCALER_PATH)
-print("✅ Model and scaler loaded.")
+
+# The model was fitted on a named DataFrame. Predicting with a bare list works
+# but warns on every single call; keeping the names silences that and makes the
+# feature order explicit at the call site.
+FEATURE_NAMES = list(getattr(model, "feature_names_in_", [
+    "overlap", "diversity", "coverage_i_j",
+    "coverage_j_i", "mutual_coverage", "skill_balance",
+]))
+
+print("Model and scaler loaded.")
+
+
+def _predict(features: list) -> float:
+    return float(model.predict(pd.DataFrame([features], columns=FEATURE_NAMES))[0])
 
 # ── Database setup ───────────────────────────────────────────
 
@@ -104,6 +118,27 @@ def _compute_features(E_i, N_i, E_j, N_j) -> list:
         float(abs(np.sum(E_i) - np.sum(E_j))),                 # skill_balance
     ]
 
+def _as_percent(score: float, N_i, N_j) -> int:
+    """
+    Present the model's score as a percentage.
+
+    The target it was trained on is `comp_i_to_j + comp_j_to_i`, i.e. the sum
+    over each side's needed skills of how strong the other side is in them.
+    Each declared need can contribute at most 1.0, so the ceiling for a pair is
+    the number of needs the two of them declared between them. Dividing by that
+    ceiling makes the number mean something concrete: how much of what the two
+    of them need is actually covered.
+
+    This is presentation only. Ranking is done on the raw score, untouched.
+    """
+    ceiling = float(np.sum(N_i) + np.sum(N_j))
+    if ceiling <= 0:
+        # Nobody declared needs, so coverage is undefined. Fall back to the
+        # model's practical operating range rather than showing a false 0.
+        ceiling = 2.0
+    return int(min(100, max(0, round(score / ceiling * 100))))
+
+
 def _build_explanation(E_i, N_i, E_j, N_j) -> dict:
     """
     Explain why user j is a good match for user i.
@@ -131,6 +166,36 @@ def _build_explanation(E_i, N_i, E_j, N_j) -> dict:
         "high_diversity":  div > 0.5,
         "low_redundancy":  float(np.sum(E_i * E_j)) < 1.0,
     }
+
+def _normalise_candidates(candidates) -> list:
+    """
+    Turn a JSON candidate list into the same row shape the SQLite table uses,
+    so scoring below does not need to care where the pool came from.
+    Malformed entries are skipped rather than failing the whole request.
+    """
+    if not candidates:
+        return []
+    rows = []
+    for c in candidates:
+        if not isinstance(c, dict):
+            continue
+        uid = c.get("user_id") or c.get("id")
+        if not uid:
+            continue
+        skills = c.get("skills") or {}
+        needs = c.get("needs") or []
+        if not isinstance(skills, dict) or not isinstance(needs, list):
+            continue
+        rows.append((
+            str(uid),
+            c.get("name") or "Student",
+            c.get("major") or "",
+            str(c.get("year") or ""),
+            json.dumps(skills),
+            json.dumps(needs),
+        ))
+    return rows
+
 
 # ── Public API ────────────────────────────────────────────────
 
@@ -162,40 +227,48 @@ def register_user(user_id: str, name: str, major: str, year: str,
 def get_recommendations(requester_id: str = None,
                         skills: dict = None,
                         needs: list = None,
-                        k: int = 5) -> dict:
+                        k: int = 5,
+                        candidates: list = None) -> dict:
     """
     Return top-k matches for a user.
 
-    Can be called two ways:
+    Can be called three ways:
       A) By user_id  → looks up their stored profile
       B) By skills+needs directly (guest search, no registration needed)
-    """
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        "SELECT user_id, name, major, year, skills_json, needs_json FROM users"
-    ).fetchall()
-    conn.close()
+      C) With an explicit `candidates` list supplied by the caller
 
-    if len(rows) == 0:
-        return {"status": "no_users", "matches": []}
+    (C) exists because the local table is a cache, not the system of record —
+    the app's users live in Firestore. Passing the pool in keeps matching
+    correct even when this process has been restarted and the cache is cold.
+    """
+    supplied = _normalise_candidates(candidates)
+
+    rows = []
+    if not supplied:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            "SELECT user_id, name, major, year, skills_json, needs_json FROM users"
+        ).fetchall()
+        conn.close()
 
     # Get requester's vectors
     if requester_id:
         me = next((r for r in rows if r[0] == requester_id), None)
         if me is None:
-            return {"status": "error", "message": "user_id not found"}, 404
+            return {"status": "user_not_found",
+                    "message": "user_id not found",
+                    "matches": []}
         my_skills  = json.loads(me[4])
         my_needs   = json.loads(me[5])
         candidates = [r for r in rows if r[0] != requester_id]
     else:
         my_skills  = skills or {}
         my_needs   = needs or []
-        candidates = rows
+        candidates = supplied if supplied else rows
 
-    if len(candidates) == 0:
-        return {"status": "no_candidates",
-                "message": "No other users registered yet.",
-                "matches": []}
+    if not candidates:
+        return {"status": "no_users", "matches": []}
+
 
     # Build requester vectors
     E_me = _scale(_to_vector(my_skills))
@@ -209,7 +282,7 @@ def get_recommendations(requester_id: str = None,
         N_j = _needs_vector(json.loads(n_json))
 
         features = _compute_features(E_me, N_me, E_j, N_j)
-        score    = float(model.predict([features])[0])
+        score    = _predict(features)
 
         results.append({
             "user_id":         uid,
@@ -217,7 +290,7 @@ def get_recommendations(requester_id: str = None,
             "major":           major,
             "year":            year,
             "score_raw":       score,
-            "score_percent":   min(100, max(0, round(score * 25))),
+            "score_percent":   _as_percent(score, N_me, N_j),
             "dominant_skill":  SKILL_NAMES[int(np.argmax(E_j))],
             "skills":          json.loads(s_json),
             "needs":           json.loads(n_json),

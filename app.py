@@ -13,6 +13,8 @@ Endpoints:
   GET  /api/users           → list all users (dev/debug only)
 """
 
+import os
+
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import model_service as ms
@@ -64,15 +66,24 @@ def recommend():
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "JSON body required"}), 400
-    k = int(data.get("k", 5))
-    if "user_id" in data:
-        result = ms.get_recommendations(requester_id=str(data["user_id"]), k=k)
-    elif "skills" in data:
+    try:
+        k = max(1, min(50, int(data.get("k", 5))))
+    except (TypeError, ValueError):
+        return jsonify({"error": "k must be an integer"}), 400
+
+    candidates = data.get("candidates")
+    if candidates is not None and not isinstance(candidates, list):
+        return jsonify({"error": "candidates must be a list"}), 400
+
+    if "skills" in data:
         result = ms.get_recommendations(
             skills=data.get("skills", {}),
             needs=data.get("needs", []),
+            candidates=candidates,
             k=k,
         )
+    elif "user_id" in data:
+        result = ms.get_recommendations(requester_id=str(data["user_id"]), k=k)
     else:
         return jsonify({"error": "Provide user_id OR skills+needs"}), 400
     return jsonify(result)
@@ -80,9 +91,22 @@ def recommend():
 
 @app.route("/api/users", methods=["GET"])
 def list_users():
+    """
+    Debug helper. Off unless EXPOSE_USERS=1 is set: this returns every
+    registered person's name and major, which is not something a public
+    endpoint should hand out.
+    """
+    if os.environ.get("EXPOSE_USERS") != "1":
+        return jsonify({"error": "Not available"}), 404
     users = ms.get_all_users()
     return jsonify({"total": len(users), "users": users})
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # debug=True exposes the Werkzeug console, which is remote code execution
+    # on a public host. Opt in locally with FLASK_DEBUG=1, never in production.
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+    )
